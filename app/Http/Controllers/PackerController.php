@@ -43,34 +43,40 @@ class PackerController extends Controller
 
     // накладная
     public function create_packer_document(Request $request)
-    {
-        Log::info( $request);
-        try {
-            // Validate the incoming request
-            $validated = $request->validate([
-                'id_courier' => 6,
-                'delivery_address' => 'nullable|string|max:255',
-                'product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
-                'amount_of_products' => 'nullable|numeric|min:0',
-            ]);
+{
+    Log::info('Packer Document Request:', $request->all());
 
-            // Create a new packer document
-            $packerDocument = PackerDocument::create($validated);
+    try {
+        // Validate the incoming request
+        $validated = $request->validate([
+            'id_courier' => 'required|integer|exists:users,id', // Ensure this is a valid courier ID
+            'delivery_address' => 'nullable|string|max:255',
+            'product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
+            'amount_of_products' => 'required|numeric|min:1', // Ensure a positive product amount
+        ]);
 
-            return response()->json([
-                'message' => 'Документ успешно создан.',
-                'data' => $packerDocument,
-            ], 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'error' => 'Validation failed',
-                'messages' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to create document',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
+        // Create a new packer document
+        $packerDocument = PackerDocument::create($validated);
+
+        return response()->json([
+            'message' => 'Документ успешно создан.',
+            'data' => $packerDocument,
+        ], 201);
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'error' => 'Validation failed',
+            'messages' => $e->errors(),
+        ], 422);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Failed to create document',
+            'message' => $e->getMessage(),
+        ], 500);
     }
+}
+
+    public function get_packer_document(){
+        return PackerDocument::all();
+    }
+
 }

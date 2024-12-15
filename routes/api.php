@@ -28,6 +28,7 @@ Route::post('/logout', [AuthController::class,'logout']);
 
 
 Route::get('getCourierUsers',[CourierController::class,'getCourierUsers']);
+Route::get('/get_packer_document', [PackerController::class, 'get_packer_document']);
 
 
 Route::post('/admin/offer-requests', [AdminController::class, 'createOfferRequest']);
@@ -200,7 +201,7 @@ Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
 
    Route::post('/create_packer_document', [PackerController::class, 'create_packer_document']);
 
-
+   
    Route::get('generalWarehouse', [PackerController::class, 'generalWarehouse']);
 });
 
