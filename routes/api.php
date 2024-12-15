@@ -27,6 +27,7 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/logout', [AuthController::class,'logout']);
 
 
+Route::get('getCourierUsers',[CourierController::class,'getCourierUsers']);
 
 
 Route::post('/admin/offer-requests', [AdminController::class, 'createOfferRequest']);
@@ -115,6 +116,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
    Route::get('getInventory',[StorageController::class,'getInventory']);
 
 
+
    Route::post('storeAdress/{userId}', [AddressController::class, 'storeAdress']);
    Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
    Route::get('getStorageUserAddresses',[AddressController::class, 'getStorageUserAddresses']);
@@ -135,14 +137,14 @@ Route::middleware(['auth:sanctum', 'role:client'])->group(function () {
      Route::get('getUserPriceRequests', [PriceRequestController::class, 'getUserPriceRequests']);
 
      Route::get('basket', [BasketController::class, 'index']);
-
     Route::post('basket/add', [BasketController::class, 'add']);
-
     Route::post('basket/remove', [BasketController::class, 'remove']);
-
     Route::post('basket/clear', [BasketController::class, 'clear']);
-
     Route::post('basket/place-order', [BasketController::class, 'placeOrder']);
+
+    Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
+    Route::post('removeFromFavorites', [FavoritesController::class, 'removeFromFavorites']);
+    Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
 
     Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
     Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
@@ -186,7 +188,9 @@ Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
 Route::post('/send-message', [ChatController::class, 'sendMessage']);
 Route::get('/messages', [ChatController::class, 'getMessages']);
 
+
 Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
+
    Route::get('/packer/orders', [OrderController::class, 'getPackerOrders']);
    Route::put('packer/orders/{orderId}/products', [OrderController::class, 'updateOrderProducts']);
    Route::get('packer/orders/{orderId}/', [OrderController::class, 'getDetailedOrder']);
@@ -196,7 +200,7 @@ Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
 
    Route::post('/create_packer_document', [PackerController::class, 'create_packer_document']);
 
-   
+
    Route::get('generalWarehouse', [PackerController::class, 'generalWarehouse']);
 });
 

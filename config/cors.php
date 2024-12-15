@@ -1,13 +1,13 @@
 <?php
 
 return [
-    'paths' => ['api/*'], // Ensure your API endpoints are included
+    'paths' => ['api/*', 'storage/*'],
     'allowed_methods' => ['*'],
-    'allowed_origins' => ['*'], // Replace '*' with specific domain(s) in production
+    'allowed_origins' => ['*'], // You can restrict to specific domains for better security
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
-    'exposed_headers' => [],
+    'exposed_headers' => false,
     'max_age' => 0,
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 ];
 

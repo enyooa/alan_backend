@@ -296,6 +296,7 @@ public function getOfferRequest($id)
 }
 
 
+
     // справочник
     public function fetchOperationsHistory()
 {
