@@ -21,7 +21,12 @@ use App\Http\Controllers\SalesController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\FinancialElementController;
 
+Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
+   Route::get('getCourierDocuments', [CourierController::class, 'getCourierDocuments']);
+   Route::post('/send-message', [ChatController::class, 'sendMessage']);
+   Route::get('messages', [ChatController::class, 'getMessages']);
 
+});
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/logout', [AuthController::class,'logout']);
@@ -37,11 +42,11 @@ Route::get('/admin/offer-requests/{id}', [AdminController::class, 'getOfferReque
 
 
 // это чтобы всех ролей собрать
-Route::middleware('auth:sanctum')->get('/user/roles', function () {
-   return auth()->user()->roles->pluck('name');
-});
+// Route::middleware('auth:sanctum')->get('/user/roles', function () {
+//    return auth()->user()->roles->pluck('name');
+// });
 // все роли собирать заканчивается ветка
-Route::middleware('auth:sanctum')->post('/upload-photo', [AuthController::class, 'uploadPhoto']);
+// Route::middleware('auth:sanctum')->post('/upload-photo', [AuthController::class, 'uploadPhoto']);
 
 
 // страница администратора
@@ -155,7 +160,6 @@ Route::middleware(['auth:sanctum', 'role:client'])->group(function () {
 
 });
 
-
 Route::middleware(['auth:sanctum', 'role:cashbox'])->group(function () {
    Route::get('/financial-elements', [FinancialElementController::class, 'index']);
    Route::post('/financial-elements', [FinancialElementController::class, 'store']);
@@ -177,18 +181,15 @@ Route::middleware(['auth:sanctum', 'role:cashbox'])->group(function () {
 
 });
 
-Route::middleware(['auth:sanctum', 'role:storage'])->group(function () {
 
+
+
+Route::middleware('auth:sanctum')->get('/debug-auth', function () {
+   return response()->json([
+       'user_id' => auth()->id(),
+       'user_roles' => auth()->check() ? auth()->user()->roles->pluck('name') : [],
+   ]);
 });
-
-Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
-   Route::get('getCourierDocuments', [CourierController::class, 'getCourierDocuments']);
-
-});
-
-Route::post('/send-message', [ChatController::class, 'sendMessage']);
-Route::get('/messages', [ChatController::class, 'getMessages']);
-
 
 Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
 

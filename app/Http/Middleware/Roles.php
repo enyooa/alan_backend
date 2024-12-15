@@ -20,22 +20,24 @@ class Roles
      */
     public function handle(Request $request, Closure $next, ...$roles)
 {
-    Log::info('Roles middleware triggered', [
+    \Log::info('Middleware Debug', [
         'user_id' => auth()->id(),
-        'roles' => $roles,
+        'user_roles' => auth()->check() ? auth()->user()->roles->pluck('name')->toArray() : null,
+        'required_roles' => $roles,
     ]);
 
-    if (!Auth::check()) {
+    if (!auth()->check()) {
         return response()->json(['error' => 'Unauthenticated'], 401);
     }
 
-    $user = Auth::user();
-    if (!$user->hasAnyRole($roles)) {
+    if (!auth()->user()->hasAnyRole($roles)) {
         return response()->json(['error' => 'Unauthorized'], 403);
     }
 
     return $next($request);
 }
+
+
 
 
 
