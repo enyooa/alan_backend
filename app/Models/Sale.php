@@ -13,6 +13,7 @@ class Sale extends Model
         'unit_measurement',
         'amount',
         'price',
+        'totalsum',
     ];
 
     public function subCard()

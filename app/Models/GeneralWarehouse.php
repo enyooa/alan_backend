@@ -11,12 +11,14 @@ class GeneralWarehouse extends Model
     protected $table = 'general_warehouses';
 
     protected $fillable = [
-        'user_id', // Changed from 'storager_id'
+        'organization_id',
         'product_subcard_id',
-        'amount',
+        'user_id','address_id',
         'unit_measurement',
+        'quantity',
+        'price',
+        'total_sum',
         'date',
-        'address_id',
     ];
 
     // Relationship with ProductSubCard

@@ -16,10 +16,16 @@ class CreateGeneralWarehousesTable extends Migration
          // склады общие 
         Schema::create('general_warehouses', function (Blueprint $table) {
             $table->id();
-            $table->integer('user_id');// кладовщик айди
-            $table->integer('product_subcard_id');//subcard
-            $table->double('amount')->nullable();
-            $table->string('unit_measurement')->nullable();
+            $table->integer('organization_id')->nullable()->constrained('users')->onDelete('cascade');
+            $table->integer('product_subcard_id');
+            $table->integer('user_id')->nullable();
+            $table->integer('address_id')->nullable();
+
+            $table->string('unit_measurement')->nullable();// ед измерение
+            $table->double('quantity')->nullable(); // количества
+            $table->integer('price')->nullable();//цена
+            $table->integer('total_sum')->nullable();//итог
+            $table->date('date')->nullable();
             $table->timestamps();
         });
     }

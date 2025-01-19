@@ -9,7 +9,9 @@ class UnitMeasurementController extends Controller
 {
     public function index()
     {
-        return response()->json(Unit_measurement::all(), 200);
+        $units = Unit_measurement::select('name')->distinct()->get();
+
+        return response()->json($units);
     }
 
     public function store(Request $request)

@@ -20,11 +20,11 @@ class Roles
      */
     public function handle(Request $request, Closure $next, ...$roles)
 {
-    \Log::info('Middleware Debug', [
-        'user_id' => auth()->id(),
-        'user_roles' => auth()->check() ? auth()->user()->roles->pluck('name')->toArray() : null,
-        'required_roles' => $roles,
-    ]);
+    // \Log::info('Middleware Debug', [
+    //     'user_id' => auth()->id(),
+    //     'user_roles' => auth()->check() ? auth()->user()->roles->pluck('name')->toArray() : null,
+    //     'required_roles' => $roles,
+    // ]);
 
     if (!auth()->check()) {
         return response()->json(['error' => 'Unauthenticated'], 401);

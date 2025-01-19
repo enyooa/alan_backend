@@ -7,6 +7,7 @@ use App\Models\FinancialOrder;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use App\Models\ProductSubCard;
 
 class FinancialElementController extends Controller
 {
@@ -60,28 +61,52 @@ class FinancialElementController extends Controller
      */
     public function storeFinancialOrder(Request $request)
     {
-        Log::info($request->all());
+        // Log the incoming request data
+        //Log::info('Incoming request data:', $request->all());
+    
+        // Validate the incoming request
         $validator = Validator::make($request->all(), [
             'type' => 'required|string',
             'admin_cash_id' => 'required|exists:admin_cashes,id',
             'user_id' => 'required|exists:users,id',
             'financial_element_id' => 'required|exists:financial_elements,id',
-            'product_subcard_id' => 'nullable|exists:product_cards,id',
+            'product_subcard_id' => 'nullable|exists:product_sub_cards,id',
             'summary_cash' => 'required|integer',
             'date_of_check' => 'required|date',
-            'photo_of_check' => 'nullable|file|mimes:jpeg,png,jpg|max:2048',
+            'photo_of_check' => 'nullable|file|mimes:jpeg,png,jpg',
         ]);
-
+    
         if ($validator->fails()) {
+            // Log validation errors
+            //Log::info('Validation failed:', $validator->errors()->toArray());
             return response()->json(['errors' => $validator->errors()], 422);
         }
-
-        // Handle photo upload
+    
         $photoPath = null;
+    
+        // Handle photo upload
         if ($request->hasFile('photo_of_check')) {
-            $photoPath = $request->file('photo_of_check')->store('checks', 'public');
+            //Log::info('photo_of_check exists in the request.');
+            $photoFile = $request->file('photo_of_check');
+    
+            if ($photoFile->isValid()) {
+                // Log the original name of the uploaded file
+                //Log::info('Uploaded photo name: ' . $photoFile->getClientOriginalName());
+    
+                // Create a unique filename and save the file
+                $filename = uniqid() . '_' . $photoFile->getClientOriginalName();
+                $photoPath = $photoFile->storeAs('financial_orders', $filename, 'public');
+    
+                // Log the storage path
+                //Log::info('Photo stored at: ' . $photoPath);
+            } else {
+                Log::error('Photo upload is invalid.');
+                return response()->json(['message' => 'Invalid photo upload.'], 400);
+            }
+        } else {
+            //Log::info('No photo uploaded.');
         }
-
+    
         // Create the financial order
         $financialOrder = FinancialOrder::create([
             'type' => $request->type,
@@ -91,11 +116,21 @@ class FinancialElementController extends Controller
             'product_subcard_id' => $request->product_subcard_id,
             'summary_cash' => $request->summary_cash,
             'date_of_check' => $request->date_of_check,
-            'photo_of_check' => $photoPath,
+            'photo_of_check' => $photoPath ? $photoPath : null,
         ]);
-
+    
+        // If photo was uploaded, generate a public URL for it
+        if ($photoPath) {
+            $financialOrder->photo_of_check = asset('storage/' . $photoPath);
+        }
+    
+        //Log::info('Financial order created successfully:', $financialOrder->toArray());
+    
         return response()->json($financialOrder, 201);
     }
+    
+
+
 
     /**
      * Show the specified financial order.

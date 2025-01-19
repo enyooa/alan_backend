@@ -67,7 +67,8 @@ class PriceRequestController extends Controller
             'price_offers.*.unit_measurement' => 'required|string|max:255',
             'price_offers.*.amount' => 'required|numeric|min:0',
             'price_offers.*.price' => 'required|numeric|min:0',
-            'price_offers.*.address_id' => 'required|integer|exists:addresses,id', // Validate address_id
+            'totalsum' => 'required|numeric|min:0', // Ensure totalsum is passed and valid
+            'price_offers.*.address_id' => 'required|integer|exists:addresses,id',
         ]);
 
         // Log validated data for debugging
@@ -78,11 +79,12 @@ class PriceRequestController extends Controller
         foreach ($validated['price_offers'] as $offer) {
             $bulkData[] = [
                 'user_id' => $validated['client_id'],
-                'address_id' => $offer['address_id'], // Include address_id
+                'address_id' => $offer['address_id'],
                 'product_subcard_id' => $offer['product_subcard_id'],
                 'unit_measurement' => $offer['unit_measurement'],
                 'amount' => $offer['amount'],
                 'price' => $offer['price'],
+                'totalsum' => $validated['totalsum'], // Include the totalsum for each row
                 'start_date' => $validated['start_date'],
                 'end_date' => $validated['end_date'],
                 'created_at' => now(),
@@ -140,5 +142,35 @@ public function getUserPriceRequests()
         'data' => $priceRequests,
     ]);
 }
+
+
+public function update(Request $request, $id)
+{
+    $priceRequest = PriceRequest::findOrFail($id);
+
+    $validated = $request->validate([
+        'choice_status' => 'nullable|string',
+        'user_id' => 'nullable|integer|exists:users,id',
+        'address_id' => 'nullable|integer',
+        'product_card_id' => 'nullable|integer|exists:product_cards,id',
+        'unit_measurement' => 'nullable|string',
+        'amount' => 'nullable|numeric',
+        'price' => 'nullable|numeric',
+        'start_date' => 'nullable|date',
+        'end_date' => 'nullable|date',
+    ]);
+
+    $priceRequest->update($validated);
+
+    return response()->json(['message' => 'Price Request updated successfully'], 200);
+}
+
+public function destroy($id)
+{
+    PriceRequest::destroy($id);
+
+    return response()->json(['message' => 'Price Request deleted successfully'], 200);
+}
+
 
 }

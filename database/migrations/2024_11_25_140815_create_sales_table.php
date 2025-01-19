@@ -20,6 +20,8 @@ class CreateSalesTable extends Migration
             $table->string('unit_measurement')->nullable();
             $table->integer('amount')->nullable();
             $table->integer('price')->nullable();
+            $table->integer('totalsum')->nullable();
+
             $table->timestamps();
         });
     }

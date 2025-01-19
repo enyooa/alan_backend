@@ -131,4 +131,9 @@ class User extends Authenticatable
     return $this->belongsToMany(Address::class, 'address_user');
 }
 
+public function courierDocuments()
+{
+    return $this->belongsToMany(CourierDocument::class, 'client_courier_documents', 'client_id', 'courier_document_id');
+}
+
 }

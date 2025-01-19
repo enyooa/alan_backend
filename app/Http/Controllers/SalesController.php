@@ -25,6 +25,7 @@ class SalesController extends Controller
             'unit_measurement' => 'nullable|string|max:255',
             'amount' => 'required|integer|min:1', // Ensure amount is positive
             'price' => 'required|integer|min:1', // Ensure price is positive
+            'totalsum' => $request->amount * $request->price,
         ]);
 
         // Create the sale record in the database
@@ -39,19 +40,19 @@ class SalesController extends Controller
 
     public function bulkStore(Request $request)
 {
-    // Log the incoming request for debugging
-    Log::info('Received bulk sales data:', $request->all());
-
-    // Validate the incoming data
-    $validated = $request->validate([
-        'sales' => 'required|array',
-        'sales.*.product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
-        'sales.*.unit_measurement' => 'nullable|string|max:255',
-        'sales.*.amount' => 'integer|min:1',
-        'sales.*.price' => 'integer|min:1',
-    ]);
-
     try {
+        // Validate the incoming data
+        $validated = $request->validate([
+            'sales' => 'required|array',
+            'sales.*.product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
+            'sales.*.unit_measurement' => 'nullable|string|max:255',
+            'sales.*.amount' => 'integer|min:1',
+            'sales.*.price' => 'integer|min:1',
+            'sales.*.totalsum' => 'integer|min:1',
+
+        ]);
+        Log::info($validated['sales']);
+
         // Insert the validated sales data into the database
         foreach ($validated['sales'] as $sale) {
             Sale::create([
@@ -59,6 +60,7 @@ class SalesController extends Controller
                 'unit_measurement' => $sale['unit_measurement'],
                 'amount' => $sale['amount'],
                 'price' => $sale['price'],
+                'totalsum' => $sale['totalsum'], // Use totalsum from frontend
             ]);
         }
 
@@ -67,7 +69,6 @@ class SalesController extends Controller
             'message' => 'Продажи успешно созданы!',
         ], 201);
     } catch (\Exception $e) {
-        // Log and return the error if insertion fails
         Log::error('Error saving sales:', ['error' => $e->getMessage()]);
         return response()->json([
             'message' => 'Ошибка при сохранении продаж.',
@@ -76,6 +77,28 @@ class SalesController extends Controller
     }
 }
 
+public function update(Request $request, $id)
+{
+    $sale = Sale::findOrFail($id);
+
+    $validated = $request->validate([
+        'product_subcard_id' => 'nullable|integer|exists:product_sub_cards,id',
+        'unit_measurement' => 'nullable|string',
+        'amount' => 'nullable|numeric',
+        'price' => 'nullable|numeric',
+    ]);
+
+    $sale->update($validated);
+
+    return response()->json(['message' => 'Sale updated successfully'], 200);
+}
+
+public function destroy($id)
+{
+    Sale::destroy($id);
+
+    return response()->json(['message' => 'Sale deleted successfully'], 200);
+}
 
 
 

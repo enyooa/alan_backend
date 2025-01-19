@@ -67,4 +67,26 @@ public function getCardProducts()
     }
 }
 
+public function update(Request $request, $id)
+    {
+        $productCard = ProductCard::findOrFail($id);
+
+        $validated = $request->validate([
+            'name_of_products' => 'nullable|string',
+            'description' => 'nullable|string',
+            'country' => 'nullable|string',
+            'type' => 'nullable|string',
+            'photo_product' => 'nullable|string',
+        ]);
+
+        $productCard->update($validated);
+        return response()->json(['message' => 'Product Card updated successfully'], 200);
+    }
+
+    public function destroy($id)
+    {
+        ProductCard::destroy($id);
+        return response()->json(['message' => 'Product Card deleted successfully'], 200);
+    }
+
 }

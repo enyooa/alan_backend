@@ -20,11 +20,16 @@ use App\Http\Controllers\SubCardController;
 use App\Http\Controllers\SalesController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\FinancialElementController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\WarehousesController;
+use App\Models\FinancialOrder;
+
+Route::post('/send-message', [ChatController::class, 'sendMessage']);
+Route::get('messages', [ChatController::class, 'getMessages']);
 
 Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
-   Route::get('getCourierDocuments', [CourierController::class, 'getCourierDocuments']);
-   Route::post('/send-message', [ChatController::class, 'sendMessage']);
-   Route::get('messages', [ChatController::class, 'getMessages']);
+   Route::get('getCourierDocuments', [CourierController::class, 'getCourierOrders']);
+   Route::post('create_courier_document', [CourierController::class, 'storeCourierDocument']);
 
 });
 Route::post('/login', [AuthController::class, 'login'])->name('login');
@@ -33,20 +38,18 @@ Route::post('/logout', [AuthController::class,'logout']);
 
 
 Route::get('getCourierUsers',[CourierController::class,'getCourierUsers']);
-Route::get('/get_packer_document', [PackerController::class, 'get_packer_document']);
+Route::get('/packer_document/{id}', [PackerController::class, 'get_packer_document']);
 
 
 Route::post('/admin/offer-requests', [AdminController::class, 'createOfferRequest']);
 Route::get('/admin/offer-requests', [AdminController::class, 'getOfferRequests']);
 Route::get('/admin/offer-requests/{id}', [AdminController::class, 'getOfferRequest']);
 
-
-// это чтобы всех ролей собрать
-// Route::middleware('auth:sanctum')->get('/user/roles', function () {
-//    return auth()->user()->roles->pluck('name');
-// });
-// все роли собирать заканчивается ветка
-// Route::middleware('auth:sanctum')->post('/upload-photo', [AuthController::class, 'uploadPhoto']);
+Route::middleware('auth:sanctum')->group(function () {
+   Route::post('/uploadPhoto', [ProfileController::class, 'uploadPhoto']);
+   Route::get('/profile', [ProfileController::class, 'getProfile']);
+   Route::put('/profile', [ProfileController::class, 'updateProfile']);
+});
 
 
 // страница администратора
@@ -54,27 +57,32 @@ Route::get('/admin/offer-requests/{id}', [AdminController::class, 'getOfferReque
 Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
    Route::post('product_card_create', [ProductCardController::class, 'store']);//создать карточку товара
    Route::get('/product_cards', [ProductCardController::class, 'getCardProducts']);
+   Route::put('product_cards/{id}', [ProductCardController::class, 'updateCardProducts']);
+   Route::delete('/product_cards/{id}', [ProductCardController::class, 'destroy']);
 
    Route::post('price-offers', [PriceRequestController::class, 'store']);
    Route::post('bulkPriceOffers', [PriceRequestController::class, 'bulkStore']);
-
+   Route::put('/price-offers/{id}', [PriceRequestController::class, 'update']);
+   Route::delete('/price-offers/{id}', [PriceRequestController::class, 'destroy']);
    
    //оприходование товаров
    Route::post('/admin_warehouses', [AdminController::class, 'createWarehouse']);
    Route::post('/receivingBulkStore', [AdminController::class, 'receivingBulkStore']);
    //оприходование товаров
-   // Warehouse Routes
-   Route::get('/admin_warehouses', [AdminController::class, 'getAllWarehouses']);
 
 
    Route::post('/admin/product-groups', [AdminController::class, 'addProductToWarehouse']);
    Route::get('/warehouses/{id}/products', [AdminController::class, 'getProductsByWarehouse']);
 
-//admin routes end
+   // остаток на складе
    
+Route::get('/inventory/admin-warehouse', [WarehousesController::class, 'getRemainingQuantities']);
+Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGeneralWarehouse']);
    //подкарточки
    Route::post('/product_subcards', [SubCardController::class, 'store']); //подкарточки
-   Route::get('/product_subcards', [SubCardController::class, 'getSubCards']); 
+   // Route::get('/product_subcards', [SubCardController::class, 'getSubCards']); 
+   Route::put('/product_subcards/{id}', [SubCardController::class, 'update']);
+   Route::delete('/product_subcards/{id}', [SubCardController::class, 'destroy']);
    //подкарточки
 
    //создать поставщика
@@ -108,14 +116,22 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
 
    //  создать продажу
    // 
-    Route::post('sales', [SalesController::class, 'store']);
+   Route::get('getSalesWithDetails', [SalesController::class, 'getSalesWithDetails']);
+   Route::post('sales', [SalesController::class, 'store']);
    Route::post('bulk_sales', [SalesController::class, 'bulkStore']);
+   Route::put('/sales/{id}', [SalesController::class, 'update']);
+   Route::delete('/sales/{id}', [SalesController::class, 'destroy']);
 
    // создать продажу
    
    // Инвентаризация склада
-   Route::get('client-users', [AdminController::class, 'getClientUsers']);
+
+   // справочник в админке
    Route::get('operations-history', [AdminController::class, 'fetchOperationsHistory']);
+   Route::put('operations/{id}/{type}', [AdminController::class, 'updateOperation']);
+   Route::delete('operations/{id}/{type}', [AdminController::class, 'deleteOperation']);
+   // справочник в админке
+
 
    Route::get('getStorageUsers',[StorageController::class,'getStorageUsers']);
    Route::post('bulkStoreInventory',[StorageController::class,'bulkStoreInventory']);
@@ -129,56 +145,52 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
 
    
 });
-Route::middleware(['auth:sanctum', 'role:admin,client'])->group(function () {
-   Route::get('getSalesWithDetails', [SalesController::class, 'getSalesWithDetails']);
-   Route::get('/product_subcards', [SubCardController::class, 'getSubCards']);
-   Route::get('/product_cards', [ProductCardController::class, 'getCardProducts']);
-
+Route::middleware(['auth:sanctum', 'role:client,admin'])->group(function () {
+   Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
 
 });
 
 Route::middleware(['auth:sanctum', 'role:client'])->group(function () {
      // Route::get('sales', [SalesController::class, 'index']);
-     Route::get('/product-data', [ClientController::class, 'getAllProductData']);
-     Route::get('getUserPriceRequests', [PriceRequestController::class, 'getUserPriceRequests']);
+   Route::get('/product-data', [ClientController::class, 'getAllProductData']);
+   Route::get('getUserPriceRequests', [PriceRequestController::class, 'getUserPriceRequests']);
+   Route::get('getSalesClientPage', [SalesController::class, 'getSalesWithDetails']);
+   Route::get('/product_subcards_for_clientpage', [SubCardController::class, 'getSubCards']);
+   Route::get('/product_cards_for_clientpage', [ProductCardController::class, 'getCardProducts']);
+   Route::post('/confirm-courier-document', [CourierController::class, 'confirmCourierDocument']);
+   Route::get('/client-order-items', [ClientController::class, 'getClientOrderItems']);
 
-     Route::get('basket', [BasketController::class, 'index']);
-    Route::post('basket/add', [BasketController::class, 'add']);
-    Route::post('basket/remove', [BasketController::class, 'remove']);
-    Route::post('basket/clear', [BasketController::class, 'clear']);
-    Route::post('basket/place-order', [BasketController::class, 'placeOrder']);
 
-    Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
-    Route::post('removeFromFavorites', [FavoritesController::class, 'removeFromFavorites']);
-    Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
+   Route::get('basket', [BasketController::class, 'index']);
+   Route::post('basket/add', [BasketController::class, 'add']);
+   Route::post('basket/remove', [BasketController::class, 'remove']);
+   Route::post('basket/clear', [BasketController::class, 'clear']);
+   Route::post('basket/place-order', [BasketController::class, 'placeOrder']);
 
-    Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
-    Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
-    Route::post('removeFromFavorites', [FavoritesController::class, 'removeFromFavorites']);
+   Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
+   Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
+   Route::post('removeFromFavorites', [FavoritesController::class, 'removeFromFavorites']);
 
-    
 
 });
 
-Route::middleware(['auth:sanctum', 'role:cashbox'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:cashbox,admin'])->group(function () {
    Route::get('/financial-elements', [FinancialElementController::class, 'index']);
    Route::post('/financial-elements', [FinancialElementController::class, 'store']);
    Route::put('/financial-elements/{id}', [FinancialElementController::class, 'update']);
    Route::delete('/financial-elements/{id}', [FinancialElementController::class, 'destroy']);
 
    Route::get('/admin-cashes', [AdminController::class, 'adminCashes']);
-   Route::get('client-users', [AdminController::class, 'getClientUsers']);
 
    
       Route::get('financial-order', [FinancialElementController::class, 'financialOrder']); // List all financial orders
-      Route::post('financial-order', [FinancialElementController::class, 'storeFinancialOrder']); // Create a financial order
-      Route::get('/{id}', [FinancialElementController::class, 'showFinancialOrder']); // Get a single financial order
-      Route::delete('/{id}', [FinancialElementController::class, 'destroyFinancialOrder']); // Delete a financial order
-  
-   
-   
-   
+      Route::post('financial-order', [FinancialElementController::class, 'storeFinancialOrder']); // 
+      Route::put('/financial-order/{id}', [FinancialElementController::class, 'update']);
+      Route::delete('/financial-order/{id}', [FinancialElementController::class, 'destroyFinancialOrder']);
 
+      //Route::get('/{id}', [FinancialElementController::class, 'showFinancialOrder']); // Get a single financial order
+      //Route::delete('/{id}', [FinancialElementController::class, 'destroyFinancialOrder']); // Delete a financial order
+ 
 });
 
 
@@ -192,6 +204,8 @@ Route::middleware('auth:sanctum')->get('/debug-auth', function () {
 });
 
 Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
+   
+   Route::get('history_orders', [OrderController::class, 'getHistoryOrders']);
 
    Route::get('/packer/orders', [OrderController::class, 'getPackerOrders']);
    Route::put('packer/orders/{orderId}/products', [OrderController::class, 'updateOrderProducts']);
@@ -205,10 +219,26 @@ Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
    
    Route::get('generalWarehouse', [PackerController::class, 'generalWarehouse']);
 });
+Route::middleware(['auth:sanctum', 'role:storager,admin'])->group(function () {
+   Route::get('/product_subcards', [SubCardController::class, 'getSubCards']); 
 
+});
+
+Route::middleware(['auth:sanctum', 'role:storager'])->group(function () {
+   
+   Route::get('getAllInstances', [StorageController::class, 'getAllInstances']);
+   Route::post('/storeSales', [StorageController::class, 'storeSales']);
+   Route::get('fetchSalesReport', [StorageController::class, 'fetchSalesReport']);
+   Route::post('/storageReceivingBulkStore', [StorageController::class, 'storageReceivingBulkStore']);
+
+   Route::get('general-warehouses', [StorageController::class, 'generalWarehouses']);
+   Route::post('general-warehouses/write-off', [StorageController::class, 'writeOff']);
+      
+});
 
 // присвоить фасовщика заказу
 Route::post('/orders/{orderId}/assign-packer', [OrderController::class, 'assignPacker']);
+Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
 
 
 
@@ -220,6 +250,7 @@ Route::post('/orders/{orderId}/assign-packer', [OrderController::class, 'assignP
 
 
 
+Route::get('client-users', [AdminController::class, 'getClientUsers']);
 
 Route::get('/users', [UserController::class, 'index']);
    Route::post('/users', [UserController::class, 'store']);

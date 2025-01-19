@@ -21,6 +21,8 @@ class DocumentsRequests extends Migration
             $table->integer('price')->nullable();
             $table->integer('unit_measurement_id');
             $table->integer('amount')->nullable();
+            $table->integer('brutto')->nullable()->after('amount');
+            $table->integer('netto')->nullable()->after('brutto');
             $table->timestamps();
         });
     }

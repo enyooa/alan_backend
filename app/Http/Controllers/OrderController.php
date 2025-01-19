@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\PackerDocument;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -25,22 +26,39 @@ class OrderController extends Controller
 
     public function getPackerOrders()
 {
-    $packerId = Auth::id();
-
-    $orders = Order::where('packer_id', $packerId)->get();
+    // Fetch orders where packer_document_id is NULL
+    $orders = Order::with(['orderProducts.productSubCard.productCard'])
+        ->whereNull('packer_document_id') // Filter on orders table
+        ->get();
 
     return response()->json(['success' => true, 'orders' => $orders]);
 }
+
+public function getHistoryOrders()
+{
+    // Fetch orders where packer_document_id is not null
+    $orders = Order::with(['orderProducts.productSubCard.productCard'])
+        ->whereNotNull('packer_document_id') // Filter at the Order level
+        ->get();
+
+    return response()->json(['success' => true, 'orders' => $orders]);
+}
+
+
+
+
+
+    
 
 public function getDetailedOrder($orderId)
 {
     $packerId = Auth::id();
 
-    // Fetch the order details including related products, subcards, and product cards
     $order = Order::where('id', $orderId)
-        ->where('packer_id', $packerId) // Ensure the packer is authorized to access this order
+        ->where('packer_id', $packerId)
         ->with([
-            'orderProducts.productSubCard.productCard' // Eager load relationships
+            'orderProducts.productSubCard.productCard',
+            'orderProducts.source', // Include the source relationship
         ])
         ->first();
 
@@ -56,6 +74,7 @@ public function getDetailedOrder($orderId)
         'data' => $order,
     ]);
 }
+
 
 // накладные фасовщика
 public function updateOrderProducts(Request $request, $orderId)

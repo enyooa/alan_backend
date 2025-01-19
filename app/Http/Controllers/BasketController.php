@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
@@ -11,57 +12,96 @@ use Illuminate\Support\Facades\Log;
 
 class BasketController extends Controller
 {
+    // Get all items in the basket
     public function index()
-{
-    $userId = Auth::id();
+    {
+        $userId = Auth::id();
 
-    $basketItems = Basket::where('id_client_request', $userId)->get();
+        $basketItems = Basket::where('id_client_request', $userId)
+            ->with(['productSubCard.productCard']) // Include related product details
+            ->get();
 
-    if ($basketItems->isEmpty()) {
-        return response()->json(['basket' => []], 200);
+        if ($basketItems->isEmpty()) {
+            return response()->json(['basket' => []], 200);
+        }
+
+        $basketData = $basketItems->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'quantity' => $item->quantity,
+                'price' => $item->price ?? 0, // Default price to 0 if null
+                'product_subcard_id' => $item->product_subcard_id,
+                'source_table' => $item->source_table,
+                'delivery_date' => $item->delivery_date,
+                'product_details' => [
+                    'subcard_name' => $item->productSubCard->name ?? null,
+                    'brutto' => $item->productSubCard->brutto ?? null,
+                    'netto' => $item->productSubCard->netto ?? null,
+                    'product_card' => [
+                        'name_of_products' => $item->productSubCard->productCard->name_of_products ?? null,
+                        'description' => $item->productSubCard->productCard->description ?? null,
+                        'photo_product' => $item->productSubCard->productCard->photo_product ?? null,
+                    ],
+                ],
+            ];
+        });
+        
+
+        return response()->json(['basket' => $basketData], 200);
     }
 
-    return response()->json(['basket' => $basketItems], 200);
-}
-
-
-    /**
-     * добавить продукт в корзину
-     */
+    // Add a product to the basket
     public function add(Request $request)
-{
-    Log::info('Basket Add Request:', $request->all());
-    try {
-        $validated = $request->validate([
-            'product_subcard_id' => 'required|exists:product_sub_cards,id',
-            'source_table' => 'required|in:sales,price_requests',
-            'quantity' => 'required|integer|min:1',
-        ]);
-
-        $basketItem = Basket::updateOrCreate(
-            [
-                'id_client_request' => Auth::id(),
+    {
+        try {
+            $validated = $request->validate([
+                'product_subcard_id' => 'required|exists:product_sub_cards,id',
+                'source_table' => 'required|in:sales,price_requests',
+                'source_table_id' => 'required|integer',
+                'quantity' => 'required|integer', // Allow negative values
+                'price' => 'required|numeric|min:0', // Ensure price is provided
+            ]);
+    
+            $userId = Auth::id();
+    
+            $basketItem = Basket::where([
+                'id_client_request' => $userId,
                 'product_subcard_id' => $validated['product_subcard_id'],
                 'source_table' => $validated['source_table'],
-            ],
-            [
-                'quantity' => DB::raw("quantity + {$validated['quantity']}"),
-            ]
-        );
-
-        Log::info('Basket Add Success:', $basketItem->toArray());
-        return response()->json(['success' => true, 'basket' => $basketItem], 201);
-
-    } catch (\Exception $e) {
-        Log::error('Basket Add Error:', ['message' => $e->getMessage()]);
-        return response()->json(['success' => false, 'error' => $e->getMessage()], 400);
+                'source_table_id' => $validated['source_table_id'],
+            ])->first();
+    
+            if ($basketItem) {
+                // Decrement or increment quantity
+                $basketItem->quantity += $validated['quantity'];
+    
+                if ($basketItem->quantity <= 0) {
+                    $basketItem->delete(); // Remove item if quantity is 0 or less
+                } else {
+                    $basketItem->price = $validated['price'];
+                    $basketItem->save();
+                }
+            } elseif ($validated['quantity'] > 0) {
+                // Create a new basket item only if quantity > 0
+                Basket::create([
+                    'id_client_request' => $userId,
+                    'product_subcard_id' => $validated['product_subcard_id'],
+                    'source_table' => $validated['source_table'],
+                    'source_table_id' => $validated['source_table_id'],
+                    'quantity' => $validated['quantity'],
+                    'price' => $validated['price'],
+                ]);
+            }
+    
+            return response()->json(['success' => true], 201);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
     }
-}
+    
 
 
-    /**
-     * удалить с корзины один продукт
-     */
+    // Remove a product from the basket
     public function remove(Request $request)
     {
         $validated = $request->validate([
@@ -83,9 +123,7 @@ class BasketController extends Controller
         return response()->json(['success' => true, 'message' => 'Product removed from basket'], 200);
     }
 
-    /**
-     * Очистить корзину
-     */
+    // Clear the basket
     public function clear()
     {
         $userId = Auth::id();
@@ -95,61 +133,45 @@ class BasketController extends Controller
         return response()->json(['success' => true, 'message' => 'Basket cleared'], 200);
     }
 
+    // Place an order from the basket
     public function placeOrder(Request $request)
-{
-    // Get the authenticated user
-    $user = Auth::user();
+    {
+        Log::info($request->all());
+        $user = Auth::user();
+        $address = $request->address;
 
-    // Retrieve the user's default address or the first associated address
-    $address = $user->addresses()->first();
-
-    if (!$address) {
-        return response()->json(['error' => 'User has no associated address'], 400);
-    }
-
-    // Validate other fields if necessary
-    $validated = $request->validate([]);
-
-    // Retrieve basket items for the authenticated user
-    $basketItems = Basket::where('id_client_request', $user->id)->get();
-
-    if ($basketItems->isEmpty()) {
-        return response()->json(['error' => 'Your basket is empty'], 400);
-    }
-
-    // Create the order
-    $order = Order::create([
-        'packer_id' => 4, // Example: static packer ID; replace with actual logic if dynamic
-        'user_id' => $user->id,
-        'status' => 'pending',
-        'address' => $address->name, // Use the address from the user
-    ]);
-
-    // Move items from the basket to order_items
-    foreach ($basketItems as $item) {
-        $price = null;
-
-        // Fetch price from the appropriate source table
-        if ($item->source_table === 'sales') {
-            $price = DB::table('sales')->where('id', $item->product_subcard_id)->value('price');
-        } elseif ($item->source_table === 'price_requests') {
-            $price = DB::table('price_requests')->where('id', $item->product_subcard_id)->value('price');
+        if (!$address) {
+            return response()->json(['error' => 'User has no associated address'], 400);
         }
 
-        OrderItem::create([
-            'order_id' => $order->id,
-            'product_subcard_id' => $item->product_subcard_id,
-            'source_table' => $item->source_table,
-            'quantity' => $item->quantity,
-            'price' => $price,
+        $basketItems = Basket::where('id_client_request', $user->id)->get();
+
+        if ($basketItems->isEmpty()) {
+            return response()->json(['error' => 'Your basket is empty'], 400);
+        }
+
+        $order = Order::create([
+            'packer_id' => 4,
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'address' => $address,
         ]);
+
+        foreach ($basketItems as $item) {
+            OrderItem::create([
+                'order_id' => $order->id,
+                'product_subcard_id' => $item->product_subcard_id,
+                'source_table' => $item->source_table,
+                'source_table_id' => $item->source_table_id,
+                'quantity' => $item->quantity,
+                'price' => $item->price, // Use price directly from basket
+            ]);
+        }
+
+        Basket::where('id_client_request', $user->id)->delete();
+
+        return response()->json(['success' => true, 'order' => $order]);
     }
-
-    // Clear the user's basket after moving items to the order
-    Basket::where('id_client_request', $user->id)->delete();
-
-    return response()->json(['success' => true, 'order' => $order]);
-}
 
 
 // public function getOrderDetails($orderId)
@@ -177,7 +199,7 @@ class BasketController extends Controller
 // }
 public function getOrderDetails($orderId)
 {
-    $order = Order::with('orderProducts.productSubCard.productCard')->findOrFail($orderId);
+    $order = Order::with('orderItems.productSubCard.productCard')->findOrFail($orderId);
 
     return response()->json(['success' => true, 'data' => $order]);
 }

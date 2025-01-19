@@ -53,4 +53,29 @@ class SubCardController extends Controller
             'data' => $subCards,
         ], 200);
     }
+
+
+    public function update(Request $request, $id)
+{
+    $productSubCard = ProductSubCard::findOrFail($id);
+
+    $validated = $request->validate([
+        'product_card_id' => 'nullable|integer|exists:product_cards,id',
+        'name' => 'nullable|string',
+        'brutto' => 'nullable|numeric',
+        'netto' => 'nullable|numeric',
+    ]);
+
+    $productSubCard->update($validated);
+
+    return response()->json(['message' => 'Product SubCard updated successfully'], 200);
+}
+
+public function destroy($id)
+{
+    ProductSubCard::destroy($id);
+
+    return response()->json(['message' => 'Product SubCard deleted successfully'], 200);
+}
+
 }

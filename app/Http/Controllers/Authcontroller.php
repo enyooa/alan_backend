@@ -52,8 +52,8 @@ class AuthController extends Controller
             // Validate the incoming request
             $fields = $request->validate([
                 "first_name" => 'required|string|max:255',
-                "last_name" => 'string|max:255',
-                "surname" => 'string|max:255',
+                "last_name" => 'nullable|string|max:255',
+                "surname" => 'nullable|string|max:255',
                 "whatsapp_number" => 'required|string|unique:users|max:15',
                 "password" => 'required|string|confirmed|min:8',
             ]);
@@ -61,8 +61,8 @@ class AuthController extends Controller
             // Create the user
             $user = User::create([
                 'first_name' => $fields['first_name'],
-                'last_name' => $fields['last_name'],
-                'surname' => $fields['surname'],
+                'last_name' => $fields['last_name'] ?? '', // Default to empty string
+                'surname' => $fields['surname'] ?? '',  
                 'whatsapp_number' => $fields['whatsapp_number'],
                 'password' => Hash::make($fields['password']), // Use Hash::make for password hashing
             ]);
@@ -106,31 +106,6 @@ class AuthController extends Controller
         }
     }
     
-
-    /**
-     * Handle photo upload for authenticated user.
-     */
-    public function uploadPhoto(Request $request)
-    {
-        $request->validate([
-            'photo' => 'image|mimes:jpg,jpeg,png',
-        ]);
-
-        $user = auth()->user();
-
-        // Delete existing photo if any
-        if ($user->photo) {
-            \Storage::delete('public/' . $user->photo);
-        }
-
-        // Store new photo
-        $path = $request->file('photo')->store('photos', 'public');
-        $user->photo = $path;
-        $user->save();
-
-        return response()->json(['photo' => asset('storage/' . $path)], 200);
-    }
-
     /**
      * Log out the authenticated user and revoke tokens.
      */

@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,7 +10,9 @@ class Favorite extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', 'product_subcard_id',
+        'user_id',
+        'product_subcard_id',
+        'source_table', // Add the source_table field
     ];
 
     // Relationship with the User model
@@ -18,9 +21,9 @@ class Favorite extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Relationship with the ProductSubcard model
+    // Relationship with the ProductSubCard model
     public function productSubcard()
     {
-        return $this->belongsTo(ProductSubcard::class);
+        return $this->belongsTo(ProductSubCard::class);
     }
 }

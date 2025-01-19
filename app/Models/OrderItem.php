@@ -9,9 +9,11 @@ class OrderItem extends Model
 {
     use HasFactory;
     protected $fillable = [
-        'order_id', // Add this line
+        'order_id', 
+        
         'product_subcard_id',
         'source_table',
+        'source_table_id',
         'quantity',
         'price',
     ];
@@ -21,7 +23,21 @@ class OrderItem extends Model
 }
 public function order()
 {
-    return $this->belongsTo(Order::class, 'order_id'); // Links OrderItem back to its Order
+    return $this->belongsTo(Order::class, 'order_id');
+}
+public function source()
+{
+    return $this->morphTo(null, 'source_table', 'source_table_id');
+}
+
+public function packerDocument()
+{
+    return $this->belongsTo(PackerDocument::class, 'packer_document_id');
+}
+
+public function courierDocument()
+{
+    return $this->belongsTo(CourierDocument::class, 'courier_document_id');
 }
 
 }

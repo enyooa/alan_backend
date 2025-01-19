@@ -12,8 +12,8 @@ class PackerDocument extends Model
     protected $fillable = [
         'id_courier',
         'delivery_address',
-        'product_subcard_id',
-        'amount_of_products',
+        // 'product_subcard_id',
+        // 'amount_of_products',
     ];
     public function courier()
     {
@@ -24,4 +24,10 @@ class PackerDocument extends Model
     {
         return $this->belongsTo(ProductSubcard::class, 'product_subcard_id');
     }
+
+    public function orderItems()
+{
+    return $this->hasMany(OrderItem::class, 'packer_document_id');
+}
+
 }

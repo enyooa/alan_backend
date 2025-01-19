@@ -13,6 +13,13 @@ class Basket extends Model
         'id_client_request',
         'product_subcard_id',
         'source_table',
+        'source_table_id',
         'quantity',
+        'price',
     ];
+
+    public function productSubCard()
+    {
+        return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
+    }
 }

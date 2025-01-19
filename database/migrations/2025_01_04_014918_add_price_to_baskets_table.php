@@ -4,7 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class AddDateToGeneralWarehousesTable extends Migration
+class AddPriceToBasketsTable extends Migration
 {
     /**
      * Run the migrations.
@@ -13,8 +13,8 @@ class AddDateToGeneralWarehousesTable extends Migration
      */
     public function up()
     {
-        Schema::table('general_warehouses', function (Blueprint $table) {
-            $table->date('date')->nullable()->after('unit_measurement');
+        Schema::table('baskets', function (Blueprint $table) {
+            $table->decimal('price', 8, 2)->nullable()->after('quantity'); // Add price column
 
         });
     }
@@ -26,8 +26,8 @@ class AddDateToGeneralWarehousesTable extends Migration
      */
     public function down()
     {
-        Schema::table('general_warehouses', function (Blueprint $table) {
-            $table->dropColumn('date');
+        Schema::table('baskets', function (Blueprint $table) {
+            $table->decimal('price', 8, 2)->nullable()->after('quantity'); // Add price column
 
         });
     }

@@ -59,7 +59,7 @@ class AdminUserSeeder extends Seeder
             'whatsapp_number' => '87056055055',
             'password' => Hash::make('Storage12345')
         ]);
-        $storageUser->roles()->attach(Role::where('name', 'storage')->first());
+        $storageUser->roles()->attach(Role::where('name', 'storager')->first());
 
         // Create Courier User
         $courierUser = User::create([
@@ -71,6 +71,6 @@ class AdminUserSeeder extends Seeder
         ]);
         $courierUser->roles()->attach(Role::where('name', 'courier')->first());
 
-        $this->command->info('Admin, Client, Cashbox, Packer, Storage, and Courier users created successfully!');
+        $this->command->info('Admin, Client, Cashbox, Packer, Storager, and Courier users created successfully!');
     }
 }

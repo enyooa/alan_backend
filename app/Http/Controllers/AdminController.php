@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\PriceRequest;
 use App\Models\Product_Group;
 use App\Models\AdminWarehouse;
+use App\Models\GeneralWarehouse;
 use Illuminate\Support\Facades\Log;
 
 use App\Models\Product;
@@ -20,22 +21,15 @@ use App\Models\ProductSubCard;
 use App\Models\Provider;
 use App\Models\Sale;
 use App\Models\User;
+use BeyondCode\LaravelWebSockets\Server\Loggers\Logger;
+use Exception;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class AdminController extends Controller
 {
-    public function index(){
-
-    }
-
-    // public function create_user(Request $request){
-    //     $user create([]);
-
-    // }
-
     
-
-
     public function create_product(Request $request){
         return ProductCard::create($request->query->all());
     }
@@ -145,7 +139,6 @@ public function createOfferRequest(Request $request)
     ], 201);
 }
 
-// Get all offer requests
 public function getOfferRequests()
 {
     $requests = PriceRequest::with(['user', 'product'])->get();
@@ -175,7 +168,7 @@ public function getOfferRequest($id)
             // Validate the incoming request
             $validated = $request->validate([
                 'organization_id' => 'nullable|integer|exists:users,id',
-                'product_card_id' => 'required|integer|exists:product_cards,id',
+                'product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
                 'unit_measurement' => 'nullable|string|max:255',
                 'quantity' => 'nullable|numeric|min:0',
                 'price' => 'nullable|numeric|min:0',
@@ -300,21 +293,85 @@ public function getOfferRequest($id)
     // справочник
     public function fetchOperationsHistory()
 {
-    // Fetch operations from various tables with localized names
     $productCards = DB::table('product_cards')
-        ->select('id', 'name_of_products as operation', 'created_at', DB::raw("'Карточка товара' as type"))
+        ->select(
+            'id',
+            DB::raw('CAST(name_of_products AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Карточка товара' as type")
+        )
         ->get();
 
     $productSubcards = DB::table('product_sub_cards')
-        ->select('id', 'name as operation', 'created_at', DB::raw("'Подкарточка товара' as type"))
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Подкарточка товара' as type")
+        )
         ->get();
 
     $sales = DB::table('sales')
-        ->select('id', 'amount as operation', 'created_at', DB::raw("'Продажа' as type"))
+        ->select(
+            'id',
+            DB::raw('CAST(amount AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Продажа' as type")
+        )
         ->get();
 
     $priceRequests = DB::table('price_requests')
-        ->select('id', 'amount as operation', 'created_at', DB::raw("'Ценовое предложение' as type"))
+        ->select(
+            'id',
+            DB::raw('CAST(amount AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Ценовое предложение' as type")
+        )
+        ->get();
+
+    $unitMeasurements = DB::table('unit_measurements')
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Единица измерения' as type")
+        )
+        ->get();
+
+    $roles = DB::table('roles')
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Присвоить роль' as type")
+        )
+        ->get();
+
+    $addresses = DB::table('addresses')
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Присвоить адрес' as type")
+        )
+        ->get();
+
+    $adminWarehouses = DB::table('admin_warehouses')
+        ->select(
+            'id',
+            DB::raw('CAST(quantity AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Перемещение в склад' as type")
+        )
+        ->get();
+
+    $providers = DB::table('providers')
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Поставщик' as type")
+        )
         ->get();
 
     // Combine and sort operations by creation date
@@ -322,58 +379,79 @@ public function getOfferRequest($id)
         ->concat($productSubcards)
         ->concat($sales)
         ->concat($priceRequests)
+        ->concat($unitMeasurements)
+        ->concat($roles)
+        ->concat($addresses)
+        ->concat($adminWarehouses)
+        ->concat($providers)
         ->sortByDesc('created_at')
         ->values();
 
     return response()->json($operations, 200);
 }
 
+
+    
+
 public function updateOperation(Request $request, $id, $type)
 {
-    switch ($type) {
-        case 'product_card':
-            $operation = ProductCard::findOrFail($id);
-            break;
-        case 'product_subcard':
-            $operation = ProductSubCard::findOrFail($id);
-            break;
-        case 'sale':
-            $operation = Sale::findOrFail($id);
-            break;
-        case 'price_request':
-            $operation = PriceRequest::findOrFail($id);
-            break;
-        default:
-            return response()->json(['message' => 'Invalid operation type'], 400);
+    try {
+        // Find the operation by type
+        $operation = $this->findOperationByType($type, $id);
+
+        // Validate input fields dynamically based on type
+        $validated = $this->validateOperationFields($request, $type);
+
+        // Update the operation
+        $operation->update($validated);
+
+        return response()->json(['message' => 'Operation updated successfully'], 200);
+    } catch (ModelNotFoundException $e) {
+        return response()->json(['message' => 'Operation not found'], 404);
+    } catch (InvalidArgumentException $e) {
+        return response()->json(['message' => $e->getMessage()], 400);
+    } catch (Exception $e) {
+        return response()->json(['message' => $e->getMessage()], 500);
     }
-
-    $operation->update($request->all());
-
-    return response()->json(['message' => 'Operation updated successfully'], 200);
 }
 
 
 public function deleteOperation($id, $type)
 {
-    switch ($type) {
-        case 'product_card':
-            ProductCard::destroy($id);
-            break;
-        case 'product_subcard':
-            ProductSubCard::destroy($id);
-            break;
-        case 'sale':
-            Sale::destroy($id);
-            break;
-        case 'price_request':
-            PriceRequest::destroy($id);
-            break;
-        default:
-            return response()->json(['message' => 'Invalid operation type'], 400);
-    }
+    Log::info([$type,$id]);
+    try {
+        // Find the operation by type
+        $operation = $this->findOperationByType($type, $id);
 
-    return response()->json(['message' => 'Operation deleted successfully'], 200);
+        // Delete the operation
+        $operation->delete();
+
+        return response()->json(['message' => 'Operation deleted successfully'], 200);
+    } catch (ModelNotFoundException $e) {
+        return response()->json(['message' => 'Operation not found'], 404);
+    } catch (InvalidArgumentException $e) {
+        return response()->json(['message' => $e->getMessage()], 400);
+    } catch (Exception $e) {
+        return response()->json(['message' => $e->getMessage()], 500);
+    }
 }
+private function findOperationByType($type, $id)
+{
+    switch ($type) {
+        case 'Карточка товара':
+            return ProductCard::findOrFail($id);
+        case 'Подкарточка товара':
+            return ProductSubCard::findOrFail($id);
+        case 'Продажа':
+            return Sale::findOrFail($id);
+        case 'Ценовое предложение':
+            return PriceRequest::findOrFail($id);
+        default:
+            throw new InvalidArgumentException('Invalid operation type');
+    }
+}
+
+
 
 
 public function adminCashes()
@@ -382,5 +460,5 @@ public function adminCashes()
         return response()->json($adminCashes, 200);
     }
 
-
+    
 }

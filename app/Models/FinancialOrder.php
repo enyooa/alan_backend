@@ -29,7 +29,7 @@ class FinancialOrder extends Model
 
     public function productSubcard()
     {
-        return $this->belongsTo(ProductSubcard::class, 'product_subcard_id');
+        return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
     }
 
     public function user()

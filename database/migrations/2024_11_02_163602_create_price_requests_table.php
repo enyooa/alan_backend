@@ -24,6 +24,7 @@ class CreatePriceRequestsTable extends Migration
             $table->string('unit_measurement')->nullable();
             $table->integer('amount')->nullable();
             $table->integer('price')->nullable();
+            $table->integer('totalsum')->nullable();
             $table->date('start_date')->nullable(); // Add start date
             $table->date('end_date')->nullable();  
             $table->timestamps();
