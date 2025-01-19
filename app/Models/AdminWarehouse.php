@@ -10,7 +10,7 @@ class AdminWarehouse extends Model
     use HasFactory;
     protected $fillable = [
         'organization_id',
-        'product_card_id',
+        'product_subcard_id',
         'unit_measurement',
         'quantity',
         'price',

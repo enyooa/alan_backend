@@ -211,7 +211,7 @@ public function getOfferRequest($id)
         $validated = $request->validate([
             'receivings' => 'required|array',
             'receivings.*.organization_id' => 'nullable|integer|exists:users,id',
-            'receivings.*.product_card_id' => 'required|integer|exists:product_cards,id',
+            'receivings.*.product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
             'receivings.*.unit_measurement' => 'nullable|string|max:255',
             'receivings.*.quantity' => 'nullable|numeric|min:0',
             'receivings.*.price' => 'nullable|numeric|min:0',
