@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PriceOfferOrder;
 use Illuminate\Http\Request;
 use App\Models\PriceRequest;
 use Illuminate\Support\Facades\Auth;
@@ -52,69 +53,45 @@ class PriceRequestController extends Controller
      * Store multiple price offers in bulk.
      */
     public function bulkStore(Request $request)
-{
-    try {
-        // Log the entire incoming request for debugging
-        Log::info('Incoming Request Payload:', $request->all());
-
-        // Validate the incoming data
-        $validated = $request->validate([
-            'client_id' => 'required|integer|exists:users,id',
-            'start_date' => 'required|date_format:Y-m-d',
-            'end_date' => 'required|date_format:Y-m-d',
-            'price_offers' => 'required|array',
-            'price_offers.*.product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
-            'price_offers.*.unit_measurement' => 'required|string|max:255',
-            'price_offers.*.amount' => 'required|numeric|min:0',
-            'price_offers.*.price' => 'required|numeric|min:0',
-            'totalsum' => 'required|numeric|min:0', // Ensure totalsum is passed and valid
-            'price_offers.*.address_id' => 'required|integer|exists:addresses,id',
-        ]);
-
-        // Log validated data for debugging
-        Log::info('Validated Data:', $validated);
-
-        // Prepare bulk insert data
-        $bulkData = [];
-        foreach ($validated['price_offers'] as $offer) {
-            $bulkData[] = [
-                'user_id' => $validated['client_id'],
-                'address_id' => $offer['address_id'],
-                'product_subcard_id' => $offer['product_subcard_id'],
-                'unit_measurement' => $offer['unit_measurement'],
-                'amount' => $offer['amount'],
-                'price' => $offer['price'],
-                'totalsum' => $validated['totalsum'], // Include the totalsum for each row
-                'start_date' => $validated['start_date'],
-                'end_date' => $validated['end_date'],
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
+    {
+        Log::info($request->all());
+    
+        // Extract the data directly from the request
+        $data = $request->all();
+    
+        // Ensure address_id exists in the first product
+        if (empty($data['price_offers'][0]['address_id'])) {
+            return response()->json(['error' => 'Missing address_id in request'], 400);
         }
-
-        // Insert data into the database
-        PriceRequest::insert($bulkData);
-
-        // Return success response
-        return response()->json([
-            'message' => 'Price offers successfully stored!',
-        ], 201);
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        // Return validation errors
-        Log::warning('Validation Error:', $e->errors());
-        return response()->json([
-            'error' => 'Validation failed',
-            'messages' => $e->errors(),
-        ], 422);
-    } catch (\Exception $e) {
-        // Log and return error if something goes wrong
-        Log::error('Error storing bulk price offers:', ['error' => $e->getMessage()]);
-        return response()->json([
-            'error' => 'Failed to store price offers',
-            'message' => $e->getMessage(),
-        ], 500);
+    
+        // Use the address_id from the first product
+        $addressId = $data['price_offers'][0]['address_id'];
+    
+        // Create the PriceRequest
+        $priceRequest = PriceRequest::create([
+            'choice_status' => 'pending', // Default choice status
+            'user_id' => $data['client_id'],
+            'address_id' => $addressId,
+            'start_date' => $data['start_date'],
+            'end_date' => $data['end_date'],
+        ]);
+    
+        // Loop through products and create PriceOfferOrder for each
+        foreach ($data['price_offers'] as $product) {
+            PriceOfferOrder::create([
+                'price_request_id' => $priceRequest->id, // Link to the request
+                'product_subcard_id' => $product['product_subcard_id'],
+                'unit_measurement' => $product['unit_measurement'],
+                'amount' => $product['amount'],
+                'price' => $product['price'] ?? 0, // Handle NULL price
+                'total' => ($product['amount'] ?? 0) * ($product['price'] ?? 0), // Calculate total
+            ]);
+        }
+    
+        return response()->json(['success' => true, 'message' => 'Price offer saved successfully.']);
     }
-}
+    
+
 
 
 

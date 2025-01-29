@@ -52,52 +52,52 @@ class BasketController extends Controller
 
     // Add a product to the basket
     public function add(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'product_subcard_id' => 'required|exists:product_sub_cards,id',
-                'source_table' => 'required|in:sales,price_requests',
-                'source_table_id' => 'required|integer',
-                'quantity' => 'required|integer', // Allow negative values
-                'price' => 'required|numeric|min:0', // Ensure price is provided
-            ]);
-    
-            $userId = Auth::id();
-    
-            $basketItem = Basket::where([
+{
+    try {
+        $validated = $request->validate([
+            'product_subcard_id' => 'required|exists:product_sub_cards,id',
+            'source_table' => 'required|in:sales,price_requests,favorites',
+            'source_table_id' => 'required|integer',
+            'quantity' => 'required|integer', // Allow negative values for decrement
+            'price' => 'required|numeric|min:0', // Ensure price is provided
+        ]);
+
+        $userId = Auth::id();
+
+        // Check if the item already exists in the basket
+        $basketItem = Basket::where([
+            'id_client_request' => $userId,
+            'product_subcard_id' => $validated['product_subcard_id'],
+            'source_table' => $validated['source_table'],
+            'source_table_id' => $validated['source_table_id'],
+        ])->first();
+
+        if ($basketItem) {
+            $basketItem->quantity += $validated['quantity'];
+
+            if ($basketItem->quantity <= 0) {
+                $basketItem->delete(); // Remove if quantity is 0 or less
+            } else {
+                $basketItem->price = $validated['price'];
+                $basketItem->save();
+            }
+        } elseif ($validated['quantity'] > 0) {
+            Basket::create([
                 'id_client_request' => $userId,
                 'product_subcard_id' => $validated['product_subcard_id'],
                 'source_table' => $validated['source_table'],
                 'source_table_id' => $validated['source_table_id'],
-            ])->first();
-    
-            if ($basketItem) {
-                // Decrement or increment quantity
-                $basketItem->quantity += $validated['quantity'];
-    
-                if ($basketItem->quantity <= 0) {
-                    $basketItem->delete(); // Remove item if quantity is 0 or less
-                } else {
-                    $basketItem->price = $validated['price'];
-                    $basketItem->save();
-                }
-            } elseif ($validated['quantity'] > 0) {
-                // Create a new basket item only if quantity > 0
-                Basket::create([
-                    'id_client_request' => $userId,
-                    'product_subcard_id' => $validated['product_subcard_id'],
-                    'source_table' => $validated['source_table'],
-                    'source_table_id' => $validated['source_table_id'],
-                    'quantity' => $validated['quantity'],
-                    'price' => $validated['price'],
-                ]);
-            }
-    
-            return response()->json(['success' => true], 201);
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'error' => $e->getMessage()], 400);
+                'quantity' => $validated['quantity'],
+                'price' => $validated['price'],
+            ]);
         }
+
+        return response()->json(['success' => true], 201);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 400);
     }
+}
+
     
 
 

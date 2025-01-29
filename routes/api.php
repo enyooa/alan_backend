@@ -28,9 +28,10 @@ Route::post('/send-message', [ChatController::class, 'sendMessage']);
 Route::get('messages', [ChatController::class, 'getMessages']);
 
 Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
-   Route::get('getCourierDocuments', [CourierController::class, 'getCourierOrders']);
-   Route::post('create_courier_document', [CourierController::class, 'storeCourierDocument']);
-
+   Route::get('getCourierOrders', [CourierController::class, 'getCourierOrders']);
+   Route::post('storeCourierDocument', [CourierController::class, 'storeCourierDocument']);
+   Route::get('courier/orders/{orderId}', [CourierController::class, 'getCourierOrderDetails']);
+   Route::post('/courier/orders/{orderId}/deliver', [CourierController::class, 'submitCourierDelivery']);
 });
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post('/register', [AuthController::class, 'register']);
@@ -84,6 +85,9 @@ Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGene
    Route::put('/product_subcards/{id}', [SubCardController::class, 'update']);
    Route::delete('/product_subcards/{id}', [SubCardController::class, 'destroy']);
    //подкарточки
+   //склад
+   Route::get('/remaining-quantity/{productSubcardId}', [WarehousesController::class, 'getRemainingQuantity']);
+
 
    //создать поставщика
    Route::get('providers',[AdminController::class,'getProviders']);
@@ -224,12 +228,12 @@ Route::middleware(['auth:sanctum', 'role:storager,admin'])->group(function () {
 
 });
 
-Route::middleware(['auth:sanctum', 'role:storager'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:storager,admin'])->group(function () {
    
    Route::get('getAllInstances', [StorageController::class, 'getAllInstances']);
    Route::post('/storeSales', [StorageController::class, 'storeSales']);
-   Route::get('fetchSalesReport', [StorageController::class, 'fetchSalesReport']);
    Route::post('/storageReceivingBulkStore', [StorageController::class, 'storageReceivingBulkStore']);
+   Route::get('fetchSalesReport', [StorageController::class, 'fetchSalesReport']);
 
    Route::get('general-warehouses', [StorageController::class, 'generalWarehouses']);
    Route::post('general-warehouses/write-off', [StorageController::class, 'writeOff']);

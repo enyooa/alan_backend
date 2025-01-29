@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdminWarehouse;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
 use Illuminate\Http\Request;
@@ -36,11 +37,19 @@ class SubCardController extends Controller
     public function getSubCards()
 {
     try {
-        $subCards = ProductSubCard::all(); // Retrieve all subcards
+        // Retrieve all subcards
+        $subCards = ProductSubCard::all()->map(function ($subCard) {
+            // Calculate the remaining quantity for each subcard
+            $remainingQuantity = AdminWarehouse::where('product_subcard_id', $subCard->id)->sum('quantity');
+
+            // Add `remaining_quantity` without affecting the original JSON structure
+            return array_merge($subCard->toArray(), ['remaining_quantity' => $remainingQuantity]);
+        });
+
         return response()->json($subCards, 200);
     } catch (\Exception $e) {
-        Log::error('Error fetching subcards', ['error' => $e->getMessage()]);
-        return response()->json(['error' => 'Failed to fetch subcards.'], 500);
+        Log::error('Error fetching subcards with quantity', ['error' => $e->getMessage()]);
+        return response()->json(['error' => 'Failed to fetch subcards with quantity.'], 500);
     }
 }
 

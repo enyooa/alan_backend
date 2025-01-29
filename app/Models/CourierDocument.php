@@ -23,7 +23,10 @@ class CourierDocument extends Model
     {
         return $this->hasMany(OrderItem::class, 'courier_document_id');
     }
-
+    public function documentProducts()
+    {
+        return $this->hasMany(CourierDocumentProduct::class, 'courier_document_id');
+    }
     public function getOrdersWithClients()
 {
     return $this->hasManyThrough(

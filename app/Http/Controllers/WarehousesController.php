@@ -6,22 +6,28 @@ use App\Models\AdminWarehouse;
 use App\Models\GeneralWarehouse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class WarehousesController extends Controller
 {
-    public function getRemainingQuantities(Request $request)
-    {
-        $data = AdminWarehouse::select(
-            'id',
-            'product_card_id',
-            'unit_measurement',
-            'quantity',
-            'price',
-            DB::raw('(quantity * price) as total_sum')
-        )->get();
+    public function getRemainingQuantity(Request $request, $productSubcardId)
+{
+    try {
+        $quantity = AdminWarehouse::where('product_subcard_id', $productSubcardId)->sum('quantity');
 
-        return response()->json(['success' => true, 'data' => $data]);
+        return response()->json([
+            'product_subcard_id' => $productSubcardId,
+            'remaining_quantity' => $quantity,
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Error fetching remaining quantity.',
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
+
+
 
     /**
      * Transfer inventory from AdminWarehouse to GeneralWarehouse

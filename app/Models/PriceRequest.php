@@ -13,7 +13,7 @@ class PriceRequest extends Model
         'choice_status',
         'user_id',
         'address_id',
-        'product_card_id',
+        'product_subcard_id',
         'unit_measurement',
         'amount',
         'price',
@@ -31,5 +31,17 @@ class PriceRequest extends Model
     public function productSubCard()
     {
         return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
+    }
+    public function orders()
+    {
+        return $this->hasMany(PriceOfferOrder::class);
+    }
+    public function order()
+    {
+        return $this->belongsTo(PriceOfferOrder::class, 'price_request_id');
+    }
+    public function priceOfferOrders()
+    {
+        return $this->hasMany(PriceOfferOrder::class, 'price_request_id');
     }
 }

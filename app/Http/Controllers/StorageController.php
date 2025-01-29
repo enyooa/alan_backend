@@ -184,12 +184,16 @@ class StorageController extends Controller
     $sales = DocumentRequest::with('productSubcard', 'unitMeasurement')
         ->get()
         ->map(function ($sale) {
+            $remainingQuantity = GeneralWarehouse::where('product_subcard_id', $sale->product_subcard_id)
+                ->sum('quantity');
+
             return [
                 'product' => $sale->productSubcard->name ?? 'Unknown',
                 'unit' => $sale->unitMeasurement->name ?? 'Unknown',
                 'quantity' => $sale->amount ?? 0,
                 'price' => $sale->price ?? 0,
                 'total' => ($sale->amount ?? 0) * ($sale->price ?? 0),
+                'remaining' => $remainingQuantity ?? 0, // Add remaining quantity
             ];
         });
 

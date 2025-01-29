@@ -50,30 +50,32 @@ class FavoritesController extends Controller
 
     // Get Favorites
     public function getFavorites()
-{
-    $userId = Auth::id();
-
-    $favorites = Favorite::where('user_id', $userId)
-        ->with(['productSubcard.productCard']) // Include related product details
-        ->get();
-
-    $favoriteData = $favorites->map(function ($favorite) {
-        return [
-            'id' => $favorite->id,
-            'product_subcard_id' => $favorite->product_subcard_id,
-            'source_table' => $favorite->source_table,
-            'product_details' => [
-                'subcard_name' => $favorite->productSubcard->name ?? null,
-                'product_card' => [
-                    'name_of_products' => $favorite->productSubcard->productCard->name_of_products ?? null,
-                    'description' => $favorite->productSubcard->productCard->description ?? null,
-                    'photo_product' => $favorite->productSubcard->productCard->photo_product ?? null,
+    {
+        $userId = Auth::id();
+    
+        $favorites = Favorite::where('user_id', $userId)
+            ->with(['productSubcard.productCard'])
+            ->get();
+    
+        $favoriteData = $favorites->map(function ($favorite) {
+            return [
+                'id' => $favorite->id,
+                'product_subcard_id' => $favorite->product_subcard_id,
+                'source_table' => $favorite->source_table ?? 'favorites', // Default to 'favorites'
+                'source_table_id' => $favorite->id, // Use the favorite ID as the source_table_id
+                'product_details' => [
+                    'subcard_name' => $favorite->productSubcard->name ?? null,
+                    'product_card' => [
+                        'name_of_products' => $favorite->productSubcard->productCard->name_of_products ?? null,
+                        'description' => $favorite->productSubcard->productCard->description ?? null,
+                        'photo_product' => $favorite->productSubcard->productCard->photo_product ?? null,
+                    ],
                 ],
-            ],
-        ];
-    });
-
-    return response()->json(['favorites' => $favoriteData], 200);
-}
+            ];
+        });
+    
+        return response()->json(['favorites' => $favoriteData], 200);
+    }
+    
 
 }
