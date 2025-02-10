@@ -20,6 +20,7 @@ use App\Http\Controllers\SubCardController;
 use App\Http\Controllers\SalesController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\FinancialElementController;
+use App\Http\Controllers\PriceOfferController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\WarehousesController;
 use App\Models\FinancialOrder;
@@ -27,15 +28,15 @@ use App\Models\FinancialOrder;
 Route::post('/send-message', [ChatController::class, 'sendMessage']);
 Route::get('messages', [ChatController::class, 'getMessages']);
 
+
 Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
    Route::get('getCourierOrders', [CourierController::class, 'getCourierOrders']);
    Route::post('storeCourierDocument', [CourierController::class, 'storeCourierDocument']);
    Route::get('courier/orders/{orderId}', [CourierController::class, 'getCourierOrderDetails']);
    Route::post('/courier/orders/{orderId}/deliver', [CourierController::class, 'submitCourierDelivery']);
 });
-Route::post('/login', [AuthController::class, 'login'])->name('login');
+Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/logout', [AuthController::class,'logout']);
 
 
 Route::get('getCourierUsers',[CourierController::class,'getCourierUsers']);
@@ -47,11 +48,14 @@ Route::get('/admin/offer-requests', [AdminController::class, 'getOfferRequests']
 Route::get('/admin/offer-requests/{id}', [AdminController::class, 'getOfferRequest']);
 
 Route::middleware('auth:sanctum')->group(function () {
-   Route::post('/uploadPhoto', [ProfileController::class, 'uploadPhoto']);
+   Route::post('/upload-photo', [ProfileController::class, 'uploadPhoto']);
    Route::get('/profile', [ProfileController::class, 'getProfile']);
    Route::put('/profile', [ProfileController::class, 'updateProfile']);
-});
+   Route::post('/toggle-notifications', [UserController::class, 'toggleNotifications']); // ✅ Fix this
+   Route::get('/user', [UserController::class, 'getUser']);
+   Route::post('/logout', [AuthController::class,'logout']);
 
+});
 
 // страница администратора
 
@@ -61,11 +65,6 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
    Route::put('product_cards/{id}', [ProductCardController::class, 'updateCardProducts']);
    Route::delete('/product_cards/{id}', [ProductCardController::class, 'destroy']);
 
-   Route::post('price-offers', [PriceRequestController::class, 'store']);
-   Route::post('bulkPriceOffers', [PriceRequestController::class, 'bulkStore']);
-   Route::put('/price-offers/{id}', [PriceRequestController::class, 'update']);
-   Route::delete('/price-offers/{id}', [PriceRequestController::class, 'destroy']);
-   
    //оприходование товаров
    Route::post('/admin_warehouses', [AdminController::class, 'createWarehouse']);
    Route::post('/receivingBulkStore', [AdminController::class, 'receivingBulkStore']);
@@ -86,8 +85,6 @@ Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGene
    Route::delete('/product_subcards/{id}', [SubCardController::class, 'destroy']);
    //подкарточки
    //склад
-   Route::get('/remaining-quantity/{productSubcardId}', [WarehousesController::class, 'getRemainingQuantity']);
-
 
    //создать поставщика
    Route::get('providers',[AdminController::class,'getProviders']);
@@ -98,6 +95,8 @@ Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGene
 
    Route::put('/users/{user}/assign-roles', [UserController::class, 'assignRoles']);
    Route::delete('/users/{user}/remove-role', [UserController::class, 'removeRole']);
+
+   Route::post('/create-account', [AuthController::class, 'createAccount']);
 
    Route::get('/users', [UserController::class, 'index']);
    Route::post('/users', [UserController::class, 'store']);
@@ -121,13 +120,18 @@ Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGene
    //  создать продажу
    // 
    Route::get('getSalesWithDetails', [SalesController::class, 'getSalesWithDetails']);
+
    Route::post('sales', [SalesController::class, 'store']);
    Route::post('bulk_sales', [SalesController::class, 'bulkStore']);
    Route::put('/sales/{id}', [SalesController::class, 'update']);
    Route::delete('/sales/{id}', [SalesController::class, 'destroy']);
 
    // создать продажу
-   
+   // создать ценовое предложение
+   Route::post('bulkPriceOffers', [PriceOfferController::class, 'bulkPriceOffers']);
+
+      // создать ценовое предложение
+
    // Инвентаризация склада
 
    // справочник в админке
@@ -147,7 +151,7 @@ Route::post('/inventory/transfer', [WarehousesController::class, 'transferToGene
    Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
    Route::get('getStorageUserAddresses',[AddressController::class, 'getStorageUserAddresses']);
 
-   
+   Route::get('fetch_data_of_price_offer',[PriceOfferController::class,'fetch_data_of_price_offer'])->name('fetch_data_of_price_offer');  
 });
 Route::middleware(['auth:sanctum', 'role:client,admin'])->group(function () {
    Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
@@ -157,7 +161,7 @@ Route::middleware(['auth:sanctum', 'role:client,admin'])->group(function () {
 Route::middleware(['auth:sanctum', 'role:client'])->group(function () {
      // Route::get('sales', [SalesController::class, 'index']);
    Route::get('/product-data', [ClientController::class, 'getAllProductData']);
-   Route::get('getUserPriceRequests', [PriceRequestController::class, 'getUserPriceRequests']);
+   // Route::get('getUserPriceRequests', [PriceRequestController::class, 'getUserPriceRequests']);
    Route::get('getSalesClientPage', [SalesController::class, 'getSalesWithDetails']);
    Route::get('/product_subcards_for_clientpage', [SubCardController::class, 'getSubCards']);
    Route::get('/product_cards_for_clientpage', [ProductCardController::class, 'getCardProducts']);

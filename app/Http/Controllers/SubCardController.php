@@ -33,17 +33,25 @@ class SubCardController extends Controller
         return response()->json(['error' => 'Failed to create product subcard.'], 500);
     }
 }
-
-    public function getSubCards()
+public function getSubCards()
 {
     try {
-        // Retrieve all subcards
         $subCards = ProductSubCard::all()->map(function ($subCard) {
-            // Calculate the remaining quantity for each subcard
-            $remainingQuantity = AdminWarehouse::where('product_subcard_id', $subCard->id)->sum('quantity');
+            // Get the admin warehouse entries for each subcard
+            $adminWarehouseEntries = AdminWarehouse::where('product_subcard_id', $subCard->id)->get();
 
-            // Add `remaining_quantity` without affecting the original JSON structure
-            return array_merge($subCard->toArray(), ['remaining_quantity' => $remainingQuantity]);
+            // Sum the quantities from AdminWarehouse
+            $remainingQuantity = $adminWarehouseEntries->sum('quantity');
+
+            // Get the unit_measurement for each subcard (we assume it's the same for all entries)
+            // If different unit measurements exist, you need to handle that differently
+            $unitMeasurement = $adminWarehouseEntries->first()->unit_measurement ?? null;
+
+            // Return the original subcard data with added `remaining_quantity` and `unit_measurement`
+            return array_merge($subCard->toArray(), [
+                'remaining_quantity' => $remainingQuantity,
+                'unit_measurement' => $unitMeasurement,
+            ]);
         });
 
         return response()->json($subCards, 200);
@@ -52,6 +60,8 @@ class SubCardController extends Controller
         return response()->json(['error' => 'Failed to fetch subcards with quantity.'], 500);
     }
 }
+
+
 
     // Fetch all subcards for a specific product card
     public function fetchByProductCard($productCardId)

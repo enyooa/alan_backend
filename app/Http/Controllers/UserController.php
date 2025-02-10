@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Role;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
@@ -93,5 +94,24 @@ public function removeRole(Request $request, User $user)
     {
         $user->delete();
         return response()->json(['message' => 'User deleted']);
+    }
+
+    public function getUser()
+    {
+        return response()->json(Auth::user());
+    }
+
+    public function toggleNotifications(Request $request)
+    {
+        $user = Auth::user();
+        
+        // Ensure request contains 'notifications' field
+        if ($request->has('notifications')) {
+            $user->notifications = $request->notifications;
+            $user->save();
+            return response()->json(['success' => true, 'message' => 'Notifications updated']);
+        }
+
+        return response()->json(['error' => 'Invalid request'], 400);
     }
 }

@@ -4,24 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PriceOfferOrder extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'price_request_id',
-        'product_subcard_id',
-        'unit_measurement',
-        'amount',
-        'price',
-        'total',
+        'client_id', 'address_id', 'start_date', 'end_date', 'totalsum'
+
     ];
 
-    public function priceRequest()
+    public function priceOffers(): HasMany
     {
-        return $this->belongsTo(PriceRequest::class, 'price_request_id');
-    }
+        return $this->hasMany(PriceOffer::class);
+    }   
 
     public function productSubCard()
     {

@@ -12,6 +12,6 @@ class Unit_measurement extends Model
 protected $table = 'unit_measurements';
 
 // Allow mass assignment
-protected $fillable = ['name'];
+protected $fillable = ['name','tare'];
     
 }

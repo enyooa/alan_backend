@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class ProfileController extends Controller
@@ -13,10 +14,11 @@ class ProfileController extends Controller
      */
     public function uploadPhoto(Request $request)
     {
+        Log::info($request->all());
         try {
             // Validate the uploaded file
             $request->validate([
-                'photo' => 'required|image|mimes:jpg,jpeg,png|max:2048', // Allow JPG, JPEG, PNG up to 2MB
+                'photo' => 'required|image|mimes:jpg,jpeg,png', // Allow JPG, JPEG, PNG up to 2MB
             ]);
 
             $user = Auth::user();

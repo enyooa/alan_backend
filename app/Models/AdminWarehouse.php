@@ -16,6 +16,9 @@ class AdminWarehouse extends Model
         'price',
         'total_sum',
         'date',
-           
+        'brutto',
+        'netto',
+        'additional_expenses',
+        'cost_price',   
     ];
 }

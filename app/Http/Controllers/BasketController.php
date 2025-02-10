@@ -174,29 +174,6 @@ class BasketController extends Controller
     }
 
 
-// public function getOrderDetails($orderId)
-// {
-//     $order = Order::with('orderProducts')->findOrFail($orderId);
-
-//     $orderItems = $order->orderItems->map(function ($item) {
-//         $productDetails = null;
-
-//         // Fetch product details from the source table
-//         if ($item->source_table === 'sales') {
-//             $productDetails = DB::table('sales')->where('id', $item->product_subcard_id)->first();
-//         } elseif ($item->source_table === 'price_requests') {
-//             $productDetails = DB::table('price_requests')->where('id', $item->product_subcard_id)->first();
-//         }
-
-//         return [
-//             'product' => $productDetails,
-//             'quantity' => $item->quantity,
-//             'price' => $item->price,
-//         ];
-//     });
-
-//     return response()->json(['order' => $order, 'items' => $orderItems]);
-// }
 public function getOrderDetails($orderId)
 {
     $order = Order::with('orderItems.productSubCard.productCard')->findOrFail($orderId);

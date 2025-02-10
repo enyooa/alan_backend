@@ -51,7 +51,7 @@ class SalesController extends Controller
             'sales.*.totalsum' => 'integer|min:1',
 
         ]);
-        Log::info($validated['sales']);
+        Log::info($validated['sales'][]);
 
         // Insert the validated sales data into the database
         foreach ($validated['sales'] as $sale) {

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Role;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
@@ -106,13 +107,52 @@ class AuthController extends Controller
         }
     }
     
+    
     /**
      * Log out the authenticated user and revoke tokens.
      */
     public function logout(Request $request)
-    {
-        auth()->user()->tokens()->delete();
+{
+    try {
+        $user = auth()->user();
 
-        return response(['message' => 'Logged out'], 201);
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated'], 401);
+        }
+
+        $user->tokens()->delete(); // Delete all tokens
+        return response()->json(['message' => 'Logged out successfully'], 200);
+    } catch (\Exception $e) {
+        return response()->json(['error' => 'Server error', 'details' => $e->getMessage()], 500);
     }
+}
+
+public function createAccount(Request $request)
+    {
+        Log::info($request->all());
+        // Validate the request inputs
+        $request->validate([
+            'firstName' => 'required|string',
+            'lastName' => 'nullable|string',
+            'whatsappNumber' => 'required|string',
+            'password' => 'required|string|min:6',
+            'role' => 'required|string',
+            
+        ]);
+
+        
+        // Create the user
+        $user = User::create([
+            'first_name' => $request->firstName,
+            'last_name' => $request->lastName,
+            'whatsapp_number' => $request->whatsappNumber,
+            'password' => Hash::make($request->password), // Encrypt the password
+        ]);
+
+        // Optionally assign role
+        $user->assignRole($request->role);
+
+        return response()->json(['message' => 'Account successfully created'], 201);
+    }
+
 }

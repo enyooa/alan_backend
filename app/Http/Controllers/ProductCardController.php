@@ -19,7 +19,7 @@ class ProductCardController extends Controller
     public function store(Request $request)
 {
     try {
-        // Log::info('ProductCard store endpoint hit.', ['request' => $request->all()]);
+         Log::info('ProductCard store endpoint hit.', ['request' => $request->all()]);
 
         $validated = $request->validate([
             'name_of_products' => 'required|string|max:255',
