@@ -1,0 +1,28 @@
+{
+    "name": "sourovahmad/unzipper",
+    "description": "An easy way to unzip the files in laravel",
+        "keywords": ["laravel", "laravel unzipper", "laravel unzip package", "unzip package laravel", "laravel", "unzip for laravel", "unzip", "laravel unzip file package"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "sourovahmad",
+            "email": "mdsourovahmad19@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {},
+
+    "autoload": {
+        "psr-4": {
+            "Sourovahmad\\Unzipper\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Sourovahmad\\Unzipper\\SourovahmadUnzipperServiceProvider"
+            ]
+        }
+    }
+}
