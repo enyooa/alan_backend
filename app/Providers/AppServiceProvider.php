@@ -21,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+
         // HEAD logic: Force HTTP scheme in dev environment
         if (env('APP_ENV') !== 'production') {
             URL::forceScheme('http');
@@ -28,6 +29,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Morph map for polymorphic relations
         Relation::morphMap([
+            'price_offers' => '\App\Models\PriceOfferItem',
+
             'sales' => 'App\Models\Sale',
             'price_requests' => 'App\Models\PriceRequest',
             // Add other models as needed

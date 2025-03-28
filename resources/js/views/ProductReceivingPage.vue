@@ -3,13 +3,14 @@
     <main class="content">
       <h2 class="page-title">Поступление товара</h2>
 
-      <!-- Card for Provider & Date -->
+      <!-- Card for Provider & Date & Warehouse -->
       <div class="card">
         <div class="card-header">
-          <h3>Выберите поставщика и дату</h3>
+          <h3>Выберите поставщика, дату и склад</h3>
         </div>
         <div class="card-body">
           <div class="flex-row">
+            <!-- 1) Поставщик -->
             <div class="dropdown">
               <label for="provider" class="field-label">Поставщик</label>
               <select
@@ -27,6 +28,8 @@
                 </option>
               </select>
             </div>
+
+            <!-- 2) Дата -->
             <div class="dropdown">
               <label for="date" class="field-label">Дата</label>
               <input
@@ -35,6 +38,25 @@
                 id="date"
                 class="dropdown-select"
               />
+            </div>
+
+            <!-- 3) Склад поступления -->
+            <div class="dropdown">
+              <label for="warehouse" class="field-label">Склад поступления</label>
+              <select
+                v-model="selectedWarehouseId"
+                id="warehouse"
+                class="dropdown-select"
+              >
+                <option disabled value="">— Выберите склад —</option>
+                <option
+                  v-for="w in warehouses"
+                  :key="w.id"
+                  :value="w.id"
+                >
+                  {{ w.name }}
+                </option>
+              </select>
             </div>
           </div>
         </div>
@@ -65,7 +87,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, index) in productRows" :key="row._key" class="table-row">
+              <tr
+                v-for="(row, index) in productRows"
+                :key="row._key"
+                class="table-row"
+              >
                 <td>
                   <select
                     v-model="row.product_subcard_id"
@@ -111,9 +137,7 @@
                     placeholder="Брутто"
                   />
                 </td>
-                <td>
-                  {{ calculateNetto(row).toFixed(2) }}
-                </td>
+                <td>{{ calculateNetto(row).toFixed(2) }}</td>
                 <td>
                   <input
                     v-model.number="row.price"
@@ -122,15 +146,9 @@
                     placeholder="Цена"
                   />
                 </td>
-                <td>
-                  {{ calculateTotal(row).toFixed(2) }}
-                </td>
-                <td>
-                  {{ calculateAdditionalExpense(row).toFixed(2) }}
-                </td>
-                <td>
-                  {{ formatCostPrice(calculateCostPrice(row)) }}
-                </td>
+                <td>{{ calculateTotal(row).toFixed(2) }}</td>
+                <td>{{ calculateAdditionalExpense(row).toFixed(2) }}</td>
+                <td>{{ formatCostPrice(calculateCostPrice(row)) }}</td>
                 <td>
                   <button @click="removeProductRow(index)" class="remove-btn">
                     ❌
@@ -154,7 +172,7 @@
         </div>
       </div>
 
-      <!-- Card for Additional Expenses with a dropdown to pick from allExpenses -->
+      <!-- Card for Additional Expenses -->
       <div class="card mt-3">
         <div class="card-header flex-between">
           <h3>Дополнительные расходы</h3>
@@ -178,7 +196,6 @@
                 class="table-row"
               >
                 <td>
-                  <!-- 1) Dropdown to select a known expense from allExpenses -->
                   <select
                     v-model="expense.selectedExpenseId"
                     class="table-select"
@@ -195,7 +212,6 @@
                   </select>
                 </td>
                 <td>
-                  <!-- 2) The user can override the auto-filled amount if needed -->
                   <input
                     v-model.number="expense.amount"
                     type="number"
@@ -221,7 +237,7 @@
           class="action-btn save-btn"
           :disabled="isSubmitting"
         >
-          {{ isSubmitting ? '⏳ Сохранение...' : 'Сохранить' }}
+          {{ isSubmitting ? "⏳ Сохранение..." : "Сохранить" }}
         </button>
       </div>
       <div v-if="message" :class="['feedback-message', messageType]">
@@ -241,6 +257,11 @@ export default {
     // Basic references
     const selectedProviderId = ref("");
     const selectedDate = ref("");
+
+    // Warehouses (instead of adminOrStoragers)
+    const warehouses = ref([]);
+    const selectedWarehouseId = ref("");
+
     const providers = ref([]);
     const products = ref([]);
     const units = ref([]);
@@ -274,46 +295,55 @@ export default {
       await fetchProducts();
       await fetchUnits();
       await fetchAllExpenses();
+      await fetchWarehouses(); // <--- load the warehouse data
     });
 
     // ======= Fetching Data =======
-    const fetchProviders = async () => {
+    async function fetchProviders() {
       try {
         const { data } = await axios.get("/api/providers");
         providers.value = data;
       } catch (error) {
         console.error("Error fetching providers:", error);
       }
-    };
-    const fetchProducts = async () => {
+    }
+    async function fetchProducts() {
       try {
         const { data } = await axios.get("/api/product_subcards");
         products.value = data;
       } catch (error) {
         console.error("Error fetching products:", error);
       }
-    };
-    const fetchUnits = async () => {
+    }
+    async function fetchUnits() {
       try {
         const { data } = await axios.get("/api/unit-measurements");
         units.value = data;
       } catch (error) {
         console.error("Error fetching units:", error);
       }
-    };
-    // The new part: fetch from /api/references/expense
-    const fetchAllExpenses = async () => {
+    }
+    async function fetchAllExpenses() {
       try {
         const { data } = await axios.get("/api/references/expense");
-        // Example response: [ {id:1, name:"Водитель", amount:0, ...}, ... ]
         allExpenses.value = data;
       } catch (error) {
         console.error("Error fetching allExpenses:", error);
       }
-    };
+    }
+
+    // New: fetch the warehouses
+    async function fetchWarehouses() {
+      try {
+        const { data } = await axios.get("/api/getWarehouses");
+        warehouses.value = data;
+      } catch (error) {
+        console.error("Error fetching warehouses:", error);
+      }
+    }
 
     // ======= Product Rows Logic =======
-    const addProductRow = () => {
+    function addProductRow() {
       productRows.value.push({
         _key: Date.now() + Math.random(),
         product_subcard_id: null,
@@ -322,50 +352,50 @@ export default {
         brutto: 0,
         price: 0,
       });
-    };
-    const removeProductRow = (index) => {
+    }
+    function removeProductRow(index) {
       productRows.value.splice(index, 1);
-    };
+    }
 
     // ======= Expense Rows Logic =======
-    const addExpenseRow = () => {
+    function addExpenseRow() {
       expenses.value.push({
         _key: Date.now() + Math.random(),
-        selectedExpenseId: "", // no selection yet
+        selectedExpenseId: "",
         amount: 0,
+        name: "",
       });
-    };
-    const removeExpense = (idx) => {
+    }
+    function removeExpense(idx) {
       expenses.value.splice(idx, 1);
-    };
-    // Called when user picks an expense from the dropdown
-    const onExpenseSelect = (row) => {
-      if (!row.selectedExpenseId) return; // user chose nothing
+    }
+    function onExpenseSelect(row) {
+      if (!row.selectedExpenseId) return;
       const found = allExpenses.value.find(
         (ex) => ex.id === row.selectedExpenseId
       );
       if (found) {
-        // auto-fill the amount
-        row.amount = found.amount || 0; 
-        // If you also want to store the name, do row.name = found.name
+        row.amount = found.amount || 0;
+        row.name = found.name;
       } else {
         row.amount = 0;
+        row.name = "";
       }
-    };
+    }
 
     // ======= Calculations =======
-    const calculateNetto = (row) => {
+    function calculateNetto(row) {
       const unit = units.value.find((u) => u.name === row.unit_measurement) || {
         tare: 0,
       };
-      const tareWeight = (unit.tare || 0) / 1000; // from grams to kg
+      // Convert grams to kg
+      const tareWeight = (unit.tare || 0) / 1000;
       return (row.brutto || 0) - (row.quantity || 0) * tareWeight;
-    };
-    const calculateTotal = (row) => {
+    }
+    function calculateTotal(row) {
       return calculateNetto(row) * (row.price || 0);
-    };
-    const calculateAdditionalExpense = (row) => {
-      // Distribute total expenses by total quantity
+    }
+    function calculateAdditionalExpense(row) {
       const totalQuantity = productRows.value.reduce(
         (sum, r) => sum + (r.quantity || 0),
         0
@@ -376,16 +406,16 @@ export default {
       );
       const expensePerQty = totalQuantity > 0 ? totalExp / totalQuantity : 0;
       return expensePerQty * (row.quantity || 0);
-    };
-    const calculateCostPrice = (row) => {
+    }
+    function calculateCostPrice(row) {
       const qty = row.quantity || 1;
       const totalCost = calculateTotal(row) + calculateAdditionalExpense(row);
       return totalCost / qty;
-    };
-    const formatCostPrice = (val) => {
+    }
+    function formatCostPrice(val) {
       if (!val) return "0.00";
       return val.toFixed(2);
-    };
+    }
 
     // ======= Summaries =======
     const totalNetto = computed(() =>
@@ -399,12 +429,11 @@ export default {
     );
 
     // ======= Submit Logic =======
-    const submitProductReceivingData = async () => {
+    async function submitProductReceivingData() {
       isSubmitting.value = true;
       try {
-        // Build final data
+        // Build products array
         const receivingData = productRows.value.map((row) => ({
-          provider_id: selectedProviderId.value,
           product_subcard_id: row.product_subcard_id,
           unit_measurement: row.unit_measurement,
           quantity: row.quantity,
@@ -412,24 +441,32 @@ export default {
           netto: calculateNetto(row),
           price: row.price,
           total_sum: calculateTotal(row),
-          additional_expense: calculateAdditionalExpense(row),
+          additional_expenses: calculateAdditionalExpense(row),
           cost_price: calculateCostPrice(row),
-          date: selectedDate.value || new Date().toISOString(),
         }));
+
+        // Build expenses array
         const expenseData = expenses.value.map((exp) => ({
           expense_id: exp.selectedExpenseId,
+          name: exp.name,
           amount: exp.amount,
         }));
 
-        await axios.post("/api/receivingBulkStore", {
+        // Send to your endpoint (example: /api/receivingBulkStore)
+        const payload = {
+          provider_id: selectedProviderId.value,
+          document_date: selectedDate.value,
+          assigned_warehouse_id: selectedWarehouseId.value, // <--- use the warehouse ID
           products: receivingData,
           expenses: expenseData,
-        });
+        };
+
+        await axios.post("/api/receivingBulkStore", payload);
 
         message.value = "Данные успешно сохранены!";
         messageType.value = "success";
 
-        // reset form
+        // Reset
         productRows.value = [
           {
             _key: Date.now(),
@@ -443,6 +480,7 @@ export default {
         expenses.value = [];
         selectedProviderId.value = "";
         selectedDate.value = "";
+        selectedWarehouseId.value = "";
       } catch (error) {
         console.error("Error saving data:", error);
         message.value = "Ошибка при сохранении данных.";
@@ -450,13 +488,19 @@ export default {
       } finally {
         isSubmitting.value = false;
       }
-    };
+    }
 
     return {
-      // Data
+      // Warehouse references
+      warehouses,
+      selectedWarehouseId,
+
+      // Providers & date
       selectedProviderId,
       selectedDate,
       providers,
+
+      // Data
       products,
       units,
       allExpenses,
@@ -471,23 +515,20 @@ export default {
       fetchProducts,
       fetchUnits,
       fetchAllExpenses,
-
+      fetchWarehouses,
       addProductRow,
       removeProductRow,
       addExpenseRow,
       removeExpense,
       onExpenseSelect,
-
       calculateNetto,
       calculateTotal,
       calculateAdditionalExpense,
       calculateCostPrice,
       formatCostPrice,
-
       totalNetto,
       totalSum,
       totalExpenses,
-
       submitProductReceivingData,
     };
   },
@@ -509,6 +550,7 @@ export default {
   margin: 0 auto;
   padding: 20px;
 }
+
 .page-title {
   color: #0288d1;
   text-align: center;
@@ -524,26 +566,32 @@ export default {
   margin-bottom: 20px;
   overflow: hidden;
 }
+
 .card-header {
   background-color: #f1f1f1;
   padding: 12px 16px;
   border-bottom: 1px solid #ddd;
 }
+
 .card-header h3 {
   margin: 0;
   color: #333;
 }
+
 .card-body {
   padding: 16px;
 }
+
 .mt-3 {
   margin-top: 20px;
 }
+
 .flex-between {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+
 .flex-row {
   display: flex;
   gap: 20px;
@@ -566,6 +614,7 @@ export default {
   border-radius: 6px;
   font-size: 14px;
 }
+
 .table-select {
   width: 100%;
   padding: 8px;
@@ -573,6 +622,7 @@ export default {
   border-radius: 6px;
   font-size: 14px;
 }
+
 .table-input {
   width: 100%;
   padding: 8px;
@@ -586,20 +636,24 @@ export default {
   width: 100%;
   border-collapse: collapse;
 }
+
 .styled-table thead tr {
   background-color: #0288d1;
   color: #fff;
 }
+
 .styled-table th,
 .styled-table td {
   padding: 10px;
   border: 1px solid #ddd;
   text-align: center;
 }
+
 .summary-row td {
   background-color: #f8f8f8;
   font-weight: bold;
 }
+
 .summary-label {
   text-align: right;
 }
@@ -618,12 +672,15 @@ export default {
   align-items: center;
   justify-content: center;
 }
+
 .action-btn:hover {
   background-color: #026ca0;
 }
+
 .add-row-btn {
   font-size: 15px;
 }
+
 .save-btn {
   margin-top: 8px;
   width: 100%;
@@ -639,6 +696,7 @@ export default {
   cursor: pointer;
   font-size: 14px;
 }
+
 .remove-btn:hover {
   background-color: #d32f2f;
 }
@@ -651,10 +709,12 @@ export default {
   padding: 10px;
   border-radius: 8px;
 }
+
 .success {
   background-color: #d4edda;
   color: #155724;
 }
+
 .error {
   background-color: #f8d7da;
   color: #721c24;

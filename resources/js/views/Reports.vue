@@ -26,6 +26,7 @@
 
           <!-- Render the selected report component -->
           <div class="report-content">
+            <!-- <component :is="currentPageComponent" /> -->
             <component :is="currentPageComponent" />
           </div>
         </div>
@@ -38,7 +39,7 @@
 import Sidebar from "../components/Sidebar.vue";
 import Header from "../components/Header.vue";
 
-// Import the four report components
+// Импортируем 4 разных отчётных компонента
 import CashFlowReportPage from "./forms/reports/CashFlowReportPage.vue";
 import WarehouseReportPage from "./forms/reports/WarehouseReportPage.vue";
 import DebtsReportPage from "./forms/reports/DebtsReportPage.vue";
@@ -49,11 +50,14 @@ export default {
   components: {
     Sidebar,
     Header,
+
+    // Вот эти компоненты регистрируем ЛОКАЛЬНО
     CashFlowReportPage,
     WarehouseReportPage,
     DebtsReportPage,
     SalesReportPage,
-    // Default component shown when no report is selected
+
+    // Компонент по умолчанию, если ничего не выбрано
     DefaultReportMessage: {
       template: '<div><p>Выберите отчет из списка</p></div>',
     },
@@ -65,11 +69,11 @@ export default {
       reportOptions: [
         {
           label: 'Отчет по кассе',
-          component: 'CashFlowReportPage',
+          component: 'CashFlowReportPage',   // Тот же ключ, что и name компонента
         },
         {
           label: 'Отчет по складу',
-          component: 'WarehouseReportPage',
+          component: 'WarehouseReportPage',  // Совпадает с name ИЛИ ключом регистрации
         },
         {
           label: 'Отчет долги',
@@ -83,11 +87,13 @@ export default {
     };
   },
   computed: {
-    // Determine which component to render based on the selected option
+    // Определяем, какой компонент сейчас нужно отобразить
     currentPageComponent() {
+      // Ищем выбранный пункт в массиве reportOptions
       const found = this.reportOptions.find(
         (option) => option.label === this.selectedOption
       );
+      // Если нашли — берём его component, иначе показываем дефолт
       return found ? found.component : 'DefaultReportMessage';
     },
   },
@@ -100,7 +106,6 @@ export default {
 </script>
 
 <style scoped>
-/* example styles from your snippet */
 .dashboard-container {
   display: flex;
   min-height: 100vh;

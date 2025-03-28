@@ -9,5 +9,5 @@ class FinancialElement extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'type'];
+    protected $fillable = ['name', 'type','role_id'];
 }

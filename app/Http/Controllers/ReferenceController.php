@@ -9,6 +9,7 @@ use App\Models\Unit_measurement;
 use App\Models\Address;
 use App\Models\Expense;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class ReferenceController extends Controller
 {
@@ -54,9 +55,46 @@ class ReferenceController extends Controller
         }
     }
 
+    public function fetchOne($type, $id)
+{
+    Log::info($type);
+    Log::info($id);
+    try {
+        switch ($type) {
+            case 'productCard':
+                $model = ProductCard::findOrFail($id);
+                // Optionally add 'photo_url' if you store an image
+                $model->photo_url = $model->photo_product
+                    ? url('storage/' . $model->photo_product)
+                    : null;
+                return response()->json($model, 200);
+
+            case 'subproductCard':
+                $model = ProductSubCard::findOrFail($id);
+                return response()->json($model, 200);
+
+            case 'provider':
+                $model = Provider::findOrFail($id);
+                return response()->json($model, 200);
+            case 'unit':
+                $model = Unit_measurement::findOrFail($id);
+                return response()->json($model, 200);
+            case 'expense':
+                $model = Expense::findOrFail($id);
+                return response()->json($model, 200);
+            // etc. for unit, address, expense
+            default:
+                return response()->json(['error' => 'Invalid reference type.'], 400);
+        }
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
+
     // 2) Unified update method (PATCH)
     public function update(Request $request, $type, $id)
     {
+
         try {
             switch ($type) {
                 case 'productCard':
@@ -66,17 +104,26 @@ class ReferenceController extends Controller
                         'description'      => 'nullable|string',
                         'country'          => 'nullable|string',
                         'type'             => 'nullable|string',
-                        'photo_product'    => 'nullable|string',
+                        // Let 'photo_product' be a file if user uploads a new image
+                        'photo_product'    => 'nullable'
                     ]);
-                    break;
+
+                    // If a file was uploaded, store it
+                    if ($request->hasFile('photo_product')) {
+                        $path = $request->file('photo_product')->store('products', 'public');
+                        $validatedData['photo_product'] = $path;
+                    }
+
+                    $model->update($validatedData);
+                    return response()->json($model, 200);
+
 
                 case 'subproductCard':
                     $model = ProductSubCard::findOrFail($id);
                     $validatedData = $request->validate([
                         'product_card_id' => 'required|integer',
                         'name'            => 'required|string',
-                        'brutto'          => 'nullable|numeric',
-                        'netto'           => 'nullable|numeric',
+
                     ]);
                     break;
 
@@ -108,7 +155,7 @@ class ReferenceController extends Controller
 
                     $validatedData = $request->validate([
                         'name'   => 'required|string',
-                        'amount' => 'required|numeric',
+                        'amount' => 'nullable|numeric',
                     ]);
                     break;
 
@@ -128,6 +175,7 @@ class ReferenceController extends Controller
     // 3) Destroy method (DELETE)
     public function destroy($type, $id)
     {
+
         try {
             switch ($type) {
                 case 'productCard':

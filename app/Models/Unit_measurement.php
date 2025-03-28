@@ -10,7 +10,9 @@ class Unit_measurement extends Model
     use HasFactory;
 // Specify the table name if it doesn't follow the default convention
 protected $table = 'unit_measurements';
-
+protected $casts = [
+    'tare' => 'float',
+];
 // Allow mass assignment
 protected $fillable = ['name','tare'];
     

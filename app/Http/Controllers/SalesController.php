@@ -10,8 +10,16 @@ class SalesController extends Controller
     public function getSalesWithDetails()
 {
     $sales = Sale::with(['subCard.productCard'])->get();
+$salesTransformed = $sales->map(function($sale) {
+    if ($sale->subCard && $sale->subCard->productCard) {
+        $sale->subCard->productCard->photo_product = $sale->subCard->productCard->photo_product
+            ? asset('storage/' . $sale->subCard->productCard->photo_product)
+            : null;
+    }
+    return $sale;
+});
+return response()->json($salesTransformed);
 
-    return response()->json($sales);
 }
 
     public function store(Request $request)

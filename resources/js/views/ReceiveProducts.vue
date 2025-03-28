@@ -1,469 +1,461 @@
 <template>
-  <div class="dashboard-container">
-    <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" />
-    <div class="main-content">
-      <Header />
+    <div class="dashboard-container">
+      <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" />
 
-      <main class="content">
-        <h2 class="page-title">Операции</h2>
+      <div class="main-content">
+        <Header />
+        <main class="content">
+          <h2 class="page-title">Операции (Docs)</h2>
 
-        <!-- 1) CREATE DROPDOWN & MODAL -->
-        <div class="dropdown-section">
-          <label class="dropdown-label">Создать:</label>
-          <select
-            v-model="selectedOption"
-            @change="openPopup"
-            class="dropdown-select"
-          >
-            <!-- default option plus other entries -->
-            <option
-              v-for="option in productOptions"
-              :key="option.value"
-              :value="option.value"
+          <!-- "Create" dropdown -->
+          <div class="dropdown-section">
+            <label class="dropdown-label">Создать:</label>
+            <select
+              v-model="selectedOption"
+              @change="openCreateModal"
+              class="dropdown-select"
             >
-              {{ option.label }}
-            </option>
-          </select>
-        </div>
+              <option
+                v-for="option in productOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
 
-        <!-- "Create" Modal -->
-        <div v-if="showPopup" class="modal-overlay">
-          <div class="modal-container">
-            <button class="close-modal-btn" @click="closePopup">✖</button>
-            <component
-              :is="currentComponent"
-              @close="closePopup"
-              @saved="onNewRecordSaved"
+          <!-- CREATE Modal -->
+          <div v-if="showCreateModal" class="modal-overlay">
+            <div class="modal-container">
+              <button class="close-modal-btn" @click="closeCreateModal">✖</button>
+              <!-- Dynamically render the creation component -->
+              <component
+                :is="currentCreateComponent"
+                @close="closeCreateModal"
+                @saved="onNewRecordSaved"
+              />
+            </div>
+          </div>
+
+          <!-- Search Field -->
+          <div class="search-section">
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="search-input"
+              placeholder="Поиск..."
             />
           </div>
-        </div>
 
-        <!-- 2) Search Field -->
-        <div class="search-section">
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="search-input"
-            placeholder="Поиск..."
-          />
-        </div>
-
-        <!-- 3) Unified Table: История операции -->
-        <div class="history-section" style="margin-top: 30px;">
-          <h3>История операции</h3>
-          <div class="table-container">
-            <table class="history-table">
-              <thead>
-                <tr>
-                  <th>№</th>
-                  <th>Тип</th>
-                  <th>Дата</th>
-                  <th>Кол-во</th>
-                  <th>Цена</th>
-                  <th>Сумма</th>
-                  <th>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(item, idx) in filteredHistories"
-                  :key="item.type + '_' + item.id"
-                >
-                  <td>{{ item.id }}</td>
-
-                  <!-- Show friendly label for type -->
-                  <td>
-                    <span v-if="item.type === 'adminWarehouse'">
-                      Приходование
-                    </span>
-                    <span v-else-if="item.type === 'sale'">Продажа</span>
-                    <span v-else-if="item.type === 'priceOffer'">
-                      Ценовое предложение
-                    </span>
-                    <span v-else>{{ item.type }}</span>
-                  </td>
-
-                  <td>{{ formatDate(item.date) }}</td>
-
-                  <!-- If adminWarehouse => quantity; if sale => amount -->
-                  <td>
-                    <span v-if="item.type === 'adminWarehouse'">
-                      {{ item.quantity }}
-                    </span>
-                    <span v-else-if="item.type === 'sale'">
-                      {{ item.amount }}
-                    </span>
-                    <span v-else-if="item.type === 'priceOffer'">
-                      {{ item.quantity || '-' }}
-                    </span>
-                  </td>
-
-                  <td>{{ item.price }}</td>
-
-                  <!-- If adminWarehouse => total_sum; if sale => totalsum -->
-                  <td>
-                    <span v-if="item.type === 'adminWarehouse'">
-                      {{ item.total_sum }}
-                    </span>
-                    <span v-else-if="item.type === 'sale'">
-                      {{ item.totalsum }}
-                    </span>
-                    <span v-else-if="item.type === 'priceOffer'">
-                      {{ item.totalsum }}
-                    </span>
-                  </td>
-
-                  <td>
-                    <button class="edit-btn" @click="openEditModal(item)">
-                      Ред.
-                    </button>
-                    <button
-                      class="delete-btn"
-                      @click="deleteRecord(item, idx)"
-                    >
-                      Удал.
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- TABLE: one row per doc -->
+          <div class="history-section" style="margin-top: 30px;">
+            <h3>Список документов</h3>
+            <div class="table-container">
+              <table class="history-table">
+                <thead>
+                  <tr>
+                    <th>№ Документа</th>
+                    <th>Тип</th>
+                    <th>Дата</th>
+                    <th>Поставщик</th>
+                    <th>Итог</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(doc, idx) in filteredDocs" :key="doc.doc_id">
+                    <td>{{ doc.document_number || doc.doc_id }}</td>
+                    <td>{{ mapTypeToLabel(doc.type) }}</td>
+                    <td>{{ formatDate(doc.document_date) }}</td>
+                    <td>{{ doc.provider_name || '-' }}</td>
+                    <td>{{ doc.doc_total_sum }}</td>
+                    <td>
+                      <!-- Single edit button that always calls openEditModal -->
+                      <button class="edit-btn" @click="openEditModal(doc)">
+                        ✏️
+                      </button>
+                      <!-- Delete -->
+                      <button class="delete-btn" @click="deleteRecord(doc, idx)">
+                        🗑
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
-        <!-- 4) Dynamic Edit Modal -->
-        <div v-if="showEditModal" class="modal-overlay">
-          <div class="modal-container">
-            <button class="close-modal-btn" @click="closeEditModal">✖</button>
-            <component
-              :is="currentEditComponent"
-              :record="itemToEdit"
-              @close="closeEditModal"
-              @saved="onItemEdited"
-            />
+          <!-- EDIT Modal -->
+          <div v-if="showEditModal" class="modal-overlay">
+            <div class="modal-container">
+              <button class="close-modal-btn" @click="closeEditModal">✖</button>
+
+              <!-- Render a different edit component for each doc.type -->
+
+              <!-- Приход (income) -->
+              <EditIncomeModal
+                v-if="docToEdit && docToEdit.type === 'income'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Списание (write_off) -->
+              <EditWriteOffModal
+                v-else-if="docToEdit && docToEdit.type === 'write_off'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Продажа (sale) -->
+              <EditSaleModal
+                v-else-if="docToEdit && docToEdit.type === 'sale'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Перемещение (transfer) -->
+              <EditTransferModal
+                v-else-if="docToEdit && docToEdit.type === 'transfer'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Ценовое предложение (priceOffer) -->
+              <EditPriceOfferModal
+                v-else-if="docToEdit && docToEdit.type === 'priceOffer'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Инвентаризация (inventory) -->
+              <EditInventoryModal
+                v-else-if="docToEdit && docToEdit.type === 'inventory'"
+                :document-id="docToEdit.doc_id"
+                @close="closeEditModal"
+                @saved="onDocEdited"
+              />
+
+              <!-- Otherwise, no recognized doc type -->
+              <div v-else>
+                <p>Нет формы для редактирования: {{ docToEdit?.type }}</p>
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
-  </div>
-</template>
+  </template>
 
-<script>
-import Sidebar from "../components/Sidebar.vue";
-import Header from "../components/Header.vue";
+  <script>
+  import Sidebar from "../components/Sidebar.vue";
+  import Header from "../components/Header.vue";
 
-// "Create" pages
-import SalePage from "./SalePage.vue";
-import PriceOfferPage from "./PriceOfferPage.vue";
-import InventoryPage from "./InventoryPage.vue";
-import ProductReceivingPage from "./ProductReceivingPage.vue";
-import WriteOffPage from "./WriteOffPage.vue";
-import InventoryCheckPage from "./InventoryCheckPage.vue";
+  // “Create” modals/pages
+  import SalePage from "./SalePage.vue";
+  import PriceOfferPage from "./PriceOfferPage.vue";
+  import InventoryPage from "./InventoryPage.vue";
+  import ProductReceivingPage from "./ProductReceivingPage.vue";
+  import WriteOffPage from "./WriteOffPage.vue";
+  import InventoryCheckPage from "./InventoryCheckPage.vue";
 
-// Edit components
-import AdminWarehouseEdit from "./forms/products/EditReceivingModal.vue";
-import SaleEditModal from "./forms/products/SaleEdit.vue";
-import PriceOfferEdit from "./forms/products/PriceOfferEdit.vue";
+  // “Edit” modals
+  import EditIncomeModal from "./forms/products/EditReceivingModal.vue";
+  import EditWriteOffModal from "./forms/products/EditWriteOffModal.vue";
+  import EditSaleModal from "./forms/products/EditSaleModal.vue";
+  import EditTransferModal from "./forms/products/EditTransferModal.vue";
+  import EditPriceOfferModal from "./forms/products/PriceOfferEdit.vue";
+  import EditInventoryModal from "./forms/products/EditInventoryModal.vue";
 
-import axios from "axios";
+  import axios from "axios";
 
-export default {
-  name: "OperationsPage",
-  components: {
-    Sidebar,
-    Header,
-    // "Create" pages
-    SalePage,
-    PriceOfferPage,
-    InventoryPage,
-    ProductReceivingPage,
-    WriteOffPage,
-    InventoryCheckPage,
-    // "Edit" modals
-    AdminWarehouseEdit,
-    SaleEditModal,
-    PriceOfferEdit,
-  },
-  data() {
-    return {
-      isSidebarOpen: true,
+  export default {
+    name: "OperationsPage",
+    components: {
+      Sidebar,
+      Header,
+      // “Create” pages
+      SalePage,
+      PriceOfferPage,
+      InventoryPage,
+      ProductReceivingPage,
+      WriteOffPage,
+      InventoryCheckPage,
+      // “Edit” modals
+      EditIncomeModal,
+      EditWriteOffModal,
+      EditSaleModal,
+      EditTransferModal,
+      EditPriceOfferModal,
+      EditInventoryModal,
+    },
+    data() {
+      return {
+        isSidebarOpen: true,
 
-      // CREATE dropdown
-      selectedOption: "", // start empty
-      productOptions: [
-        { label: "Выберите...", value: "" }, // default empty
-        { label: "Продажа", value: "sale" },
-        { label: "Ценовое предложение", value: "priceOffer" },
-        { label: "Склад", value: "inventory" },
-        { label: "Поступление товара", value: "productReceiving" },
-        { label: "Списание", value: "writeOff" },
-        { label: "Инвентаризация", value: "inventoryCheck" },
-      ],
+        // “Create” selection
+        selectedOption: "",
+        productOptions: [
+          { label: "Выберите...", value: "" },
+          { label: "Продажа", value: "sale" },
+          { label: "Ценовое предложение", value: "priceOffer" },
+          { label: "Перемещение", value: "inventory" },
+          { label: "Поступление товара", value: "productReceiving" },
+          { label: "Списание", value: "writeOff" },
+          { label: "Инвентаризация", value: "inventoryCheck" },
+        ],
+        pageMap: {
+          sale: "SalePage",
+          priceOffer: "PriceOfferPage",
+          inventory: "InventoryPage",
+          productReceiving: "ProductReceivingPage",
+          writeOff: "WriteOffPage",
+          inventoryCheck: "InventoryCheckPage",
+        },
+        showCreateModal: false,
 
-      // Map from value -> actual component
-      pageMap: {
-        sale: "SalePage",
-        priceOffer: "PriceOfferPage",
-        inventory: "InventoryPage",
-        productReceiving: "ProductReceivingPage",
-        writeOff: "WriteOffPage",
-        inventoryCheck: "InventoryCheckPage",
+        // Documents
+        allDocuments: [],
+        searchQuery: "",
+
+        // Edit doc
+        showEditModal: false,
+        docToEdit: null,
+      };
+    },
+    computed: {
+      // Which create component to display
+      currentCreateComponent() {
+        if (!this.selectedOption) return null;
+        return this.pageMap[this.selectedOption] || null;
+      },
+      filteredDocs() {
+        const q = this.searchQuery.toLowerCase();
+        if (!q) return this.allDocuments;
+        return this.allDocuments.filter((doc) => {
+          const docIdStr = String(doc.doc_id).toLowerCase();
+          const docNumStr = String(doc.document_number || "").toLowerCase();
+          const dateStr = doc.document_date
+            ? new Date(doc.document_date).toLocaleDateString()
+            : "";
+          const providerStr = (doc.provider_name || "").toLowerCase();
+
+          return (
+            docIdStr.includes(q) ||
+            docNumStr.includes(q) ||
+            dateStr.includes(q) ||
+            providerStr.includes(q)
+          );
+        });
+      },
+    },
+    created() {
+      this.fetchAllDocuments();
+    },
+    methods: {
+      // Show/hide create
+      openCreateModal() {
+        if (!this.selectedOption) return;
+        this.showCreateModal = true;
+      },
+      closeCreateModal() {
+        this.showCreateModal = false;
+      },
+      onNewRecordSaved() {
+        // after doc created, refresh
+        this.closeCreateModal();
+        this.fetchAllDocuments();
       },
 
-      showPopup: false,
-
-      // Merged Histories
-      allHistories: [],
-      searchQuery: "",
-
-      // Edit modal
-      showEditModal: false,
-      itemToEdit: null,
-    };
-  },
-  computed: {
-    // If user picks a real value, load that component.
-    // If it's "", we do nothing
-    currentComponent() {
-      if (!this.selectedOption) return null;
-      return this.pageMap[this.selectedOption] || null;
-    },
-    filteredHistories() {
-      const q = this.searchQuery.toLowerCase();
-      if (!q) return this.allHistories;
-
-      return this.allHistories.filter((item) => {
-        const idStr = String(item.id).toLowerCase();
-        let typeLabel = "";
-        if (item.type === "adminWarehouse") {
-          typeLabel = "приходование";
-        } else if (item.type === "sale") {
-          typeLabel = "продажа";
-        } else if (item.type === "priceOffer") {
-          typeLabel = "ценовое предложение";
-        } else {
-          typeLabel = item.type;
+      // Load docs
+      async fetchAllDocuments() {
+        try {
+          // GET /api/documents/allHistories
+          const { data } = await axios.get("/api/documents/allHistories");
+          this.allDocuments = data;
+        } catch (err) {
+          console.error("Error fetching documents:", err);
         }
-        const dateStr = item.date
-          ? new Date(item.date).toLocaleDateString()
-          : "";
-        const priceStr = item.price ? String(item.price) : "";
+      },
 
-        return (
-          idStr.includes(q) ||
-          typeLabel.includes(q) ||
-          dateStr.includes(q) ||
-          priceStr.includes(q)
-        );
-      });
-    },
-    currentEditComponent() {
-      if (!this.itemToEdit) return null;
-      switch (this.itemToEdit.type) {
-        case "adminWarehouse":
-          return "AdminWarehouseEdit";
-        case "sale":
-          return "SaleEditModal";
-        case "priceOffer":
-          return "PriceOfferEdit";
-        default:
-          return "AdminWarehouseEdit"; // fallback
-      }
-    },
-  },
-  created() {
-    this.fetchAllHistories();
-  },
-  methods: {
-    toggleSidebar() {
-      this.isSidebarOpen = !this.isSidebarOpen;
-    },
+      // Date formatting
+      formatDate(d) {
+        return d ? new Date(d).toLocaleDateString() : "";
+      },
+      mapTypeToLabel(code) {
+        switch (code) {
+          case "income":      return "Приход";
+          case "sale":        return "Продажа";
+          case "write_off":   return "Списание";
+          case "transfer":    return "Перемещение";
+          case "priceOffer":  return "Ценовое предложение";
+          case "inventory":   return "Инвентаризация";
+          default:            return code;
+        }
+      },
 
-    // CREATE logic
-    openPopup() {
-      // If user selected the default or no selection, do nothing
-      if (!this.selectedOption) return;
-      this.showPopup = true;
-    },
-    closePopup() {
-      this.showPopup = false;
-      // optional: reset selection so user sees "Выберите..." again
-      // this.selectedOption = "";
-    },
-    onNewRecordSaved() {
-      this.closePopup();
-      this.fetchAllHistories();
-    },
+      // Edit doc
+      openEditModal(doc) {
+        this.docToEdit = { ...doc }; // copy
+        this.showEditModal = true;
+      },
+      closeEditModal() {
+        this.showEditModal = false;
+        this.docToEdit = null;
+      },
+      onDocEdited() {
+        // re-fetch docs after editing
+        this.closeEditModal();
+        this.fetchAllDocuments();
+      },
 
-    // Fetch merged data
-    async fetchAllHistories() {
-      try {
-        const { data } = await axios.get("/api/products/allHistories");
-        this.allHistories = data;
-      } catch (err) {
-        console.error("Error fetching allHistories:", err);
-      }
+      // Delete doc
+      async deleteRecord(doc, idx) {
+        if (!confirm(`Удалить документ #${doc.doc_id}?`)) return;
+        try {
+          // DELETE /api/documents/{doc.doc_id}
+          await axios.delete(`/api/documents/${doc.doc_id}`);
+          this.allDocuments.splice(idx, 1);
+        } catch (err) {
+          console.error("Delete error:", err);
+          alert("Не удалось удалить документ.");
+        }
+      },
+
+      // Sidebar
+      toggleSidebar() {
+        this.isSidebarOpen = !this.isSidebarOpen;
+      },
     },
-    formatDate(d) {
-      return d ? new Date(d).toLocaleDateString() : "";
-    },
+  };
+  </script>
 
-    // EDIT logic
-    openEditModal(item) {
-      this.itemToEdit = { ...item };
-      this.showEditModal = true;
-    },
-    closeEditModal() {
-      this.showEditModal = false;
-      this.itemToEdit = null;
-    },
-    onItemEdited(updated) {
-      this.closeEditModal();
-      this.fetchAllHistories();
-    },
+  <style scoped>
+  .dashboard-container {
+    display: flex;
+    min-height: 100vh;
+  }
+  .main-content {
+    flex: 1;
+    background-color: #f5f5f5;
+  }
+  .content {
+    padding: 20px;
+  }
+  .page-title {
+    text-align: center;
+    color: #0288d1;
+    margin-bottom: 20px;
+  }
 
-    // DELETE logic
-    async deleteRecord(item, index) {
-      if (!confirm(`Удалить запись ID ${item.id}?`)) return;
-      try {
-        await axios.delete(`/api/products/${item.type}/${item.id}`);
-        this.allHistories.splice(index, 1);
-      } catch (err) {
-        console.error("Delete error:", err);
-        alert("Не удалось удалить запись.");
-      }
-    },
-  },
-};
-</script>
+  /* Create dropdown */
+  .dropdown-section {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dropdown-label {
+    font-weight: bold;
+  }
+  .dropdown-select {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+  }
 
-<style scoped>
-/* Basic layout */
-.dashboard-container {
-  display: flex;
-  min-height: 100vh;
-}
-.main-content {
-  flex: 1;
-  background-color: #f5f5f5;
-}
-.content {
-  padding: 20px;
-}
-.page-title {
-  text-align: center;
-  color: #0288d1;
-  margin-bottom: 20px;
-}
+  /* Search */
+  .search-section {
+    margin: 10px 0;
+  }
+  .search-input {
+    width: 100%;
+    max-width: 300px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    margin-bottom: 15px;
+  }
 
-/* "Create" dropdown styling */
-.dropdown-section {
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dropdown-label {
-  font-weight: bold;
-}
-.dropdown-select {
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-}
+  /* Table styling */
+  .history-section {
+    margin-top: 30px;
+  }
+  .table-container {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+  }
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .history-table thead {
+    background-color: #0288d1;
+    color: #fff;
+  }
+  .history-table th,
+  .history-table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: center;
+  }
 
-/* Search section */
-.search-section {
-  margin: 10px 0;
-}
-.search-input {
-  width: 100%;
-  max-width: 300px;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  margin-bottom: 15px;
-}
+  /* Buttons */
+  .edit-btn {
+    background-color: #0288d1;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 10px;
+    cursor: pointer;
+    margin-right: 5px;
+  }
+  .delete-btn {
+    background-color: #f44336;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
 
-/* Table styling */
-.history-section {
-  margin-top: 30px;
-}
-.table-container {
-  background-color: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  overflow-x: auto;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
-}
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.history-table th,
-.history-table td {
-  padding: 10px;
-  border: 1px solid #ddd;
-  text-align: center;
-}
-.history-table thead {
-  background-color: #0288d1;
-  color: #fff;
-}
-
-/* Buttons */
-.edit-btn {
-  background-color: #0288d1;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 6px 10px;
-  cursor: pointer;
-  margin-right: 5px;
-}
-.edit-btn:hover {
-  background-color: #026ca0;
-}
-.delete-btn {
-  background-color: #f44336;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.delete-btn:hover {
-  background-color: #d32f2f;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-}
-.modal-container {
-  background: #fff;
-  padding: 20px;
-  border-radius: 10px;
-  max-width: 90%;
-  max-height: 90%;
-  overflow-y: auto;
-  position: relative;
-}
-.close-modal-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-}
-</style>
+  /* Modal overlay */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-container {
+    background: #fff;
+    padding: 20px;
+    border-radius: 10px;
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+    position: relative;
+  }
+  .close-modal-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  </style>

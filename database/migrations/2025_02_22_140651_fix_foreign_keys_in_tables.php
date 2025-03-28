@@ -33,12 +33,6 @@ return new class extends Migration
             })
             ->delete();
 
-        // 4) admin_warehouses
-        DB::table('admin_warehouses')
-            ->whereNotIn('product_subcard_id', function ($q) {
-                $q->select('id')->from('product_sub_cards');
-            })
-            ->delete();
 
         // 5) general_warehouses
         DB::table('general_warehouses')
@@ -87,30 +81,6 @@ return new class extends Migration
                   ->cascadeOnDelete();
         });
 
-        /**
-         * ADMIN_WAREHOUSES
-         */
-        Schema::table('admin_warehouses', function (Blueprint $table) {
-            // If there's a unique constraint, drop it: $table->dropUnique('unique_inventory');
-            // $table->dropForeign(['product_subcard_id']);
-            $table->unsignedBigInteger('product_subcard_id')->change();
-
-            $table->foreign('product_subcard_id')
-                  ->references('id')->on('product_sub_cards')
-                  ->cascadeOnDelete();
-        });
-
-        /**
-         * GENERAL_WAREHOUSES
-         */
-        Schema::table('general_warehouses', function (Blueprint $table) {
-            // $table->dropForeign(['product_subcard_id']);
-            $table->unsignedBigInteger('product_subcard_id')->change();
-
-            $table->foreign('product_subcard_id')
-                  ->references('id')->on('product_sub_cards')
-                  ->cascadeOnDelete();
-        });
     }
 
     public function down()
@@ -143,23 +113,6 @@ return new class extends Migration
             $table->integer('product_subcard_id')->change();
         });
 
-        /**
-         * ADMIN_WAREHOUSES
-         */
-        Schema::table('admin_warehouses', function (Blueprint $table) {
-            $table->dropForeign(['product_subcard_id']);
-            $table->integer('product_subcard_id')->change();
 
-            // If you removed a unique constraint, you could re-add it here:
-            // $table->unique('product_subcard_id', 'unique_inventory');
-        });
-
-        /**
-         * GENERAL_WAREHOUSES
-         */
-        Schema::table('general_warehouses', function (Blueprint $table) {
-            $table->dropForeign(['product_subcard_id']);
-            $table->integer('product_subcard_id')->change();
-        });
     }
 };

@@ -54,44 +54,51 @@ class BasketController extends Controller
     /**
      * Add a product to the basket (HEAD version).
      */
-    public function add(Request $request)
-    {
-        try {
-            // Validate input
-            $validated = $request->validate([
-                'product_subcard_id' => 'required|integer',
-                'source_table'       => 'required|string|in:sales,price_offers,favorites',
-                'source_table_id'    => 'required|integer',
-                'quantity'           => 'required|integer',
-                'price'              => 'required|numeric|min:0',
-            ]);
+    // app/Http/Controllers/BasketController.php
 
-            Log::info('Validated basket data:', $validated);
-            $userId = Auth::id(); // Current authenticated user ID
+public function add(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'product_subcard_id' => 'required|integer',
+            'source_table'       => 'required|string|in:sales,price_offer_items,favorites',
+            'source_table_id'    => 'required|integer',
+            'quantity'           => 'required|integer',
+            'price'              => 'required|numeric|min:0',
+            // Add new validations:
+            'unit_measurement'   => 'required|string',
+            'totalsum'           => 'required|numeric|min:0',
+        ]);
 
-            // Find existing basket item for the same product + source
-            // (We do NOT include 'quantity' or 'price' in the where)
-            $basketItem = Basket::where([
-                'id_client_request'  => $userId,
-                'product_subcard_id' => $validated['product_subcard_id'],
-                'source_table'       => $validated['source_table'],
-                'source_table_id'    => $validated['source_table_id'],
-            ])->first();
+        $userId = Auth::id();
 
-            // If the item already exists, increment quantity and update price
-            if ($basketItem) {
-                $basketItem->quantity += $validated['quantity'];
+        // Look for existing Basket item with the same subcard + source_table + source_table_id
+        $basketItem = Basket::where([
+            'id_client_request'  => $userId,
+            'product_subcard_id' => $validated['product_subcard_id'],
+            'source_table'       => $validated['source_table'],
+            'source_table_id'    => $validated['source_table_id'],
+        ])->first();
 
-                // If quantity drops to 0 or below, remove the item
-                if ($basketItem->quantity <= 0) {
-                    $basketItem->delete();
-                } else {
-                    $basketItem->price = $validated['price'];
-                    $basketItem->save();
-                }
+        if ($basketItem) {
+            // Update the quantity and price
+            $basketItem->quantity += $validated['quantity'];
+            $basketItem->price = $validated['price'];
+
+            // Update the newly added fields:
+            $basketItem->unit_measurement = $validated['unit_measurement'];
+            $basketItem->totalsum = $validated['totalsum'];
+
+            // If quantity <= 0, remove item
+            if ($basketItem->quantity <= 0) {
+                $basketItem->delete();
+            } else {
+                $basketItem->save();
             }
-            // Otherwise, create a new basket item if quantity > 0
-            elseif ($validated['quantity'] > 0) {
+        }
+        else {
+            // Only create a new item if quantity > 0
+            if ($validated['quantity'] > 0) {
                 Basket::create([
                     'id_client_request'  => $userId,
                     'product_subcard_id' => $validated['product_subcard_id'],
@@ -99,19 +106,24 @@ class BasketController extends Controller
                     'source_table_id'    => $validated['source_table_id'],
                     'quantity'           => $validated['quantity'],
                     'price'              => $validated['price'],
+                    // The new fields:
+                    'unit_measurement'   => $validated['unit_measurement'],
+                    'totalsum'           => $validated['totalsum'],
                 ]);
             }
-
-            return response()->json(['success' => true], 201);
-
-        } catch (\Exception $e) {
-            Log::error("Basket add error: " . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error'   => $e->getMessage()
-            ], 400);
         }
+
+        return response()->json(['success' => true], 201);
+
+    } catch (\Exception $e) {
+        Log::error("Basket add error: " . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'error'   => $e->getMessage(),
+        ], 400);
     }
+}
+
 
     /**
      * Remove a product from the basket.
@@ -158,45 +170,48 @@ class BasketController extends Controller
      * Place an order from the basket.
      */
     public function placeOrder(Request $request)
-    {
-        Log::info($request->all());
-        $user = Auth::user();
-        $address = $request->address;
+{
+    Log::info($request->all());
+    $user = Auth::user();
+    $address = $request->address;
 
-        if (!$address) {
-            return response()->json(['error' => 'User has no associated address'], 400);
-        }
+    if (!$address) {
+        return response()->json(['error' => 'User has no associated address'], 400);
+    }
 
-        $basketItems = Basket::where('id_client_request', $user->id)->get();
-        if ($basketItems->isEmpty()) {
-            return response()->json(['error' => 'Your basket is empty'], 400);
-        }
+    $basketItems = Basket::where('id_client_request', $user->id)->get();
+    if ($basketItems->isEmpty()) {
+        return response()->json(['error' => 'Your basket is empty'], 400);
+    }
 
-        $order = Order::create([
-            'packer_id' => 4,
-            'user_id' => $user->id,
-            'status' => 'pending',
-            'address' => $address,
-        ]);
+    // Instead of 'status' => 'pending', use 'status_id' => 1
+    $order = Order::create([
+        'user_id'    => $user->id,
+        'status_id'  => 1,         // 1 => "ожидание" in status_docs
+        'address'    => $address,
+    ]);
 
-        foreach ($basketItems as $item) {
-            OrderItem::create([
-                'order_id'          => $order->id,
-                'product_subcard_id'=> $item->product_subcard_id,
-                'source_table'      => $item->source_table,
-                'source_table_id'   => $item->source_table_id,
-                'quantity'          => $item->quantity,
-                'price'             => $item->price, // Use price directly from basket
-            ]);
-        }
-
-        Basket::where('id_client_request', $user->id)->delete();
-
-        return response()->json([
-            'success' => true,
-            'order'   => $order
+    foreach ($basketItems as $item) {
+        OrderItem::create([
+            'order_id'           => $order->id,
+            'product_subcard_id' => $item->product_subcard_id,
+            'source_table'       => $item->source_table,
+            'source_table_id'    => $item->source_table_id,
+            'quantity'           => $item->quantity,
+            'price'              => $item->price,
+            'unit_measurement'   => $item->unit_measurement,  // new
+            'totalsum'           => $item->price * $item->quantity,          // new
         ]);
     }
+
+
+    Basket::where('id_client_request', $user->id)->delete();
+
+    return response()->json([
+        'success' => true,
+        'order'   => $order
+    ]);
+}
 
     /**
      * Get the details of an order, including product subcards.

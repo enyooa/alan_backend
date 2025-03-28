@@ -16,7 +16,7 @@ class ProductCard extends Model
         'description',
         'country',
         'type',
-        
+
         'photo_product',
     ];
 
@@ -24,7 +24,11 @@ class ProductCard extends Model
     {
         return $this->hasMany(ProductSubCard::class, 'product_card_id');
     }
-    
+
+    public function getPhotoProductUrlAttribute()
+    {
+        return $this->photo_product ? asset('storage/' . $this->photo_product) : null;
+    }
 
     // public function priceRequests()
     // {

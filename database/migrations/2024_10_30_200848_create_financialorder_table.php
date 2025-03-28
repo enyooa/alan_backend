@@ -21,13 +21,13 @@ class CreateFinancialOrderTable extends Migration
             $table->integer('product_subcard_id')->nullable(); // Ensure 'product_cards' table exists
             $table->integer('user_id'); // Ensure 'cashboxes' table exists
             $table->integer('financial_element_id'); // Ensure 'financial
-            
+            $table->unsignedBigInteger('auth_user_id');
             $table->integer('summary_cash');
             $table->date('date_of_check');
             $table->string('photo_of_check')->nullable();
             $table->timestamps();
         });
-        
+
     }
 
     /**

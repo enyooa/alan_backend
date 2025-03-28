@@ -7,6 +7,7 @@ use App\Models\CourierDocumentProduct;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PackerDocument;
+use App\Models\StatusDoc;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,34 +17,35 @@ use Illuminate\Support\Facades\Log;
 class CourierController extends Controller
 {
     public function getCourierOrders(Request $request)
-{
-    $courierId = $request->user()->id;
+    {
+        $courierId = $request->user()->id;
 
-    // Fetch orders assigned to the courier
-    $orders = Order::with(['orderProducts.productSubCard.productCard'])
-        ->where('courier_id', $courierId)
-        ->whereNull('courier_document_id') // Ensure the order itself is not yet documented
-        ->whereHas('orderProducts', function ($query) {
-            $query->whereNull('courier_document_id') // Not yet documented
-                  ->whereNotNull('packer_document_id'); // Packed items only
-        })
-        ->orderBy('created_at', 'desc') // Optional: order by creation date
-        ->get();
+        // 1. Fetch courier orders
+        $orders = Order::with(['orderProducts.productSubCard.productCard'])
+            ->whereNotNull('packer_id')
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-    return response()->json([
-        'success' => true,
-        'orders' => $orders,
-    ]);
-}
+        // 2. Also fetch statuses from status_docs
+        $statuses = StatusDoc::select('id','name')->get();
 
-    
+        return response()->json([
+            'success'  => true,
+            'orders'   => $orders,
+            'statuses' => $statuses,
+        ]);
+    }
+
+
+
+
 public function getCourierOrderDetails(Request $request, $orderId)
 {
     // Log::info('Fetching details for order ID: ' . $orderId . ' by user ID: ' . $request->user()->id);
-    $courierId = Auth::id(); // Get the authenticated courier's ID
+    // $courierId = Auth::id(); // Get the authenticated courier's ID
 
     $order = Order::where('id', $orderId)
-        ->where('courier_id', $courierId) // Ensure the order is assigned to the courier
+        // ->where('courier_id', $courierId) // Ensure the order is assigned to the courier
         ->with([
             'orderProducts.productSubCard.productCard', // Include product details
             'orderProducts.source', // Include the source relationship if needed
@@ -110,95 +112,96 @@ public function getCourierOrderDetails(Request $request, $orderId)
 
 
 
-public function getCourierUsers()
-{
-    try {
-        $couriers = User::whereHas('roles', function ($query) {
-            $query->where('name', 'courier');
-        })
-        ->with('addresses:name') // Load addresses and select only the name
-        ->get(['id', 'first_name', 'last_name', 'whatsapp_number']);
 
-        return response()->json($couriers, 200);
-    } catch (\Exception $e) {
-        return response()->json(['error' => 'Failed to fetch couriers', 'message' => $e->getMessage()], 500);
-    }
-}
+// public function storeCourierDocument(Request $request)
+// {
+//     Log::info($request->all()); // Log incoming request for debugging
+
+//     // Validate the incoming request
+//     $validatedData = $request->validate([
+//         'order_id' => 'required|exists:orders,id',
+//         'order_products' => 'required|array|min:1',
+//         'order_products.*.product_subcard_id' => 'required|exists:product_sub_cards,id',
+//         'order_products.*.quantity' => 'required|integer|min:1',
+//         'order_products.*.price' => 'required|numeric|min:0',
+//     ]);
+
+//     try {
+//         // Step 1: Create a new courier document
+//         $courierDocument = CourierDocument::create([
+//             'courier_id' => Auth::id(), // Assuming the authenticated user is the courier
+//             'amount_of_products' => count($validatedData['order_products']),
+//             'is_confirmed' => false,
+//         ]);
+
+//         // Step 2: Attach products to the courier document
+//         foreach ($validatedData['order_products'] as $product) {
+//             $courierDocument->documentProducts()->create([
+//                 'product_subcard_id' => $product['product_subcard_id'],
+//                 'quantity' => $product['quantity'],
+//                 'price' => $product['price'],
+//                 'source_table_id' => $product['source_table_id'], // Optional, depends on your requirements
+//             ]);
+//         }
+
+//         // Step 3: Update the order with the courier document ID
+//         $order = Order::findOrFail($validatedData['order_id']);
+//         $order->update(['courier_document_id' => $courierDocument->id]);
+
+//         return response()->json([
+//             'message' => 'Courier document created and order updated successfully.',
+//             'courier_document_id' => $courierDocument->id,
+//         ], 201);
+//     } catch (\Exception $e) {
+//         Log::error('Error storing courier document: ' . $e->getMessage());
+//         return response()->json(['error' => 'Operation failed: ' . $e->getMessage()], 500);
+//     }
+// }
+
 public function storeCourierDocument(Request $request)
 {
-    Log::info($request->all()); // Log incoming request for debugging
 
-    // Validate the incoming request
-    $validatedData = $request->validate([
-        'order_id' => 'required|exists:orders,id',
-        'order_products' => 'required|array|min:1',
-        'order_products.*.product_subcard_id' => 'required|exists:product_sub_cards,id',
-        'order_products.*.quantity' => 'required|integer|min:1',
-        'order_products.*.price' => 'required|numeric|min:0',
-    ]);
+        Log::info($request->all());
 
-    try {
-        // Step 1: Create a new courier document
-        $courierDocument = CourierDocument::create([
-            'courier_id' => Auth::id(), // Assuming the authenticated user is the courier
-            'amount_of_products' => count($validatedData['order_products']),
-            'is_confirmed' => false,
+        // 1) Validate incoming data
+        $validated = $request->validate([
+            'order_id' => 'required|exists:orders,id',
+            'products' => 'required|array|min:1',
+            'products.*.order_item_id'    => 'required|integer|exists:order_items,id',
+            'products.*.courier_quantity' => 'required|integer|min:1',
         ]);
 
-        // Step 2: Attach products to the courier document
-        foreach ($validatedData['order_products'] as $product) {
-            $courierDocument->documentProducts()->create([
-                'product_subcard_id' => $product['product_subcard_id'],
-                'quantity' => $product['quantity'],
-                'price' => $product['price'],
-                'source_table_id' => $product['source_table_id'], // Optional, depends on your requirements
-            ]);
+        // 2) Retrieve the order
+        $order = Order::findOrFail($validated['order_id']);
+
+        // 3) Assign the courier and optionally update status
+        $order->courier_id = Auth::id(); // The logged-in courier's user ID
+        $order->status_id  = 3;          // e.g. 3 => 'Передано курьеру'
+        $order->save();
+
+        // 4) Update each order item's fields
+        foreach ($validated['products'] as $itemData) {
+            // Make sure the item is part of this order
+            $orderItem = OrderItem::where('id', $itemData['order_item_id'])
+                ->where('order_id', $order->id)
+                ->first();
+
+            if ($orderItem) {
+                $orderItem->courier_quantity = $itemData['courier_quantity'];
+                $orderItem->save();
+            }
         }
 
-        // Step 3: Update the order with the courier document ID
-        $order = Order::findOrFail($validatedData['order_id']);
-        $order->update(['courier_document_id' => $courierDocument->id]);
-
+        // 5) Return success response with fresh data
         return response()->json([
-            'message' => 'Courier document created and order updated successfully.',
-            'courier_document_id' => $courierDocument->id,
+            'success' => true,
+            'message' => 'Courier data updated successfully.',
+            'order'   => $order->fresh('orderItems'),
         ], 201);
-    } catch (\Exception $e) {
-        Log::error('Error storing courier document: ' . $e->getMessage());
-        return response()->json(['error' => 'Operation failed: ' . $e->getMessage()], 500);
-    }
+
 }
 
 
-
-
-
-
-public function confirmCourierDocument(Request $request)
-{
-    // Log the incoming request body
-    Log::info('Request payload:', $request->all());
-
-    // Validate JSON structure
-    $validated = $request->validate([
-        'courier_document_id' => 'required|exists:courier_documents,id',
-    ]);
-
-    $courierDocument = CourierDocument::find($validated['courier_document_id']);
-
-    if (!$courierDocument) {
-        return response()->json(['error' => 'Courier document not found.'], 404);
-    }
-
-    if ($courierDocument->is_confirmed) {
-        return response()->json(['error' => 'Документ подтвержден.'], 400);
-    }
-
-    $courierDocument->is_confirmed = true;
-    $courierDocument->save();
-
-    return response()->json(['message' => 'Courier document confirmed successfully.']);
-}
 
 
 }

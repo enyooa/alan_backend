@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AdminWarehouse;
-use App\Models\PriceOffer;
+use App\Models\PriceOfferItem;
 use App\Models\PriceOfferOrder;
 use App\Models\ProductSubCard;
 use App\Models\Unit_measurement;
@@ -24,8 +24,8 @@ class PriceOfferController extends Controller
 
         // Retrieve subcards with remaining quantities
         $subCards = ProductSubCard::all()->map(function ($subCard) {
-            $remainingQuantity = AdminWarehouse::where('product_subcard_id', $subCard->id)->sum('quantity');
-            return array_merge($subCard->toArray(), ['remaining_quantity' => $remainingQuantity]);
+            // $remainingQuantity = AdminWarehouse::where('product_subcard_id', $subCard->id)->sum('quantity');
+            // return array_merge($subCard->toArray(), ['remaining_quantity' => $remainingQuantity]);
         });
 
         // Retrieve units of measurement
@@ -73,12 +73,12 @@ public function bulkPriceOffers(Request $request)
 {
     // Get the raw input data
     $data = $request->all();
-    
+
     // Normalize top-level fields
-    $data['client_id']   = $this->normalizeField($data, 'client_id');
-    $data['start_date']  = $this->normalizeField($data, 'start_date');
-    $data['end_date']    = $this->normalizeField($data, 'end_date');
-    
+    $data['client_id']  = $this->normalizeField($data, 'client_id');
+    $data['start_date'] = $this->normalizeField($data, 'start_date');
+    $data['end_date']   = $this->normalizeField($data, 'end_date');
+
     // For address_id, if it's nested and includes an object, extract the id
     $address = $this->normalizeField($data, 'address_id');
     if (is_array($address) && isset($address['id'])) {
@@ -86,61 +86,60 @@ public function bulkPriceOffers(Request $request)
     } else {
         $data['address_id'] = $address;
     }
-    
-    // Normalize the price_offers array
-    if (isset($data['price_offers']) && is_array($data['price_offers'])) {
-        $data['price_offers'] = $this->normalizePriceOffers($data['price_offers']);
+
+    // Normalize the price_offer_items array (the detail rows)
+    if (isset($data['price_offer_items']) && is_array($data['price_offer_items'])) {
+        $data['price_offer_items'] = $this->normalizePriceOffers($data['price_offer_items']);
     }
-    
-    Log::info($data);
-    
+
     // Now validate the normalized data
     $validatedData = validator($data, [
         'client_id' => 'required|integer',
         'address_id' => 'required|integer|exists:addresses,id',
         'start_date' => 'required|date',
         'end_date' => 'required|date',
-        'price_offers' => 'required|array',
-        'price_offers.*.product_subcard_id' => 'required|integer',
-        'price_offers.*.unit_measurement' => 'nullable|string',
-        'price_offers.*.amount' => 'required|numeric|min:0',
-        'price_offers.*.price' => 'required|numeric|min:0',
-        // 'price_offers.*.batch_id' can be optional if you need it.
+
+        'price_offer_items' => 'required|array',
+        'price_offer_items.*.product_subcard_id' => 'required|integer',
+        'price_offer_items.*.unit_measurement'   => 'nullable|string',
+        'price_offer_items.*.amount'             => 'required|numeric|min:0',
+        'price_offer_items.*.price'              => 'required|numeric|min:0',
     ])->validate();
-    
+
     DB::beginTransaction();
     try {
-        // Calculate the overall total sum (each line: amount * price)
+        // Calculate the overall total sum (header-level)
         $totalSum = 0;
-        foreach ($validatedData['price_offers'] as $offer) {
+        foreach ($validatedData['price_offer_items'] as $offer) {
             $totalSum += $offer['amount'] * $offer['price'];
         }
-    
-        // Create the PriceOfferOrder record (the "header" for the offer)
+
+        // Create the "header" record in price_offer_orders
         $priceOfferOrder = PriceOfferOrder::create([
-            'client_id' => $validatedData['client_id'],
+            'client_id'  => $validatedData['client_id'],
             'address_id' => $validatedData['address_id'],
             'start_date' => $validatedData['start_date'],
-            'end_date' => $validatedData['end_date'],
-            'totalsum' => $totalSum,
+            'end_date'   => $validatedData['end_date'],
+            'totalsum'   => $totalSum, // stored at the header level
         ]);
-    
-        // Prepare PriceOffer items (the individual products within the offer)
+
+        // Build the detail rows for price_offer_items
+        // (we removed columns that no longer exist, like 'totalsum', 'choice_status', etc.)
         $priceOffers = [];
-        foreach ($validatedData['price_offers'] as $offer) {
-            $offer['totalsum'] = $offer['amount'] * $offer['price'];
+        foreach ($validatedData['price_offer_items'] as $offer) {
+            // If you don't store 'totalsum' on the item table, omit it
             $offer['price_offer_order_id'] = $priceOfferOrder->id;
-            $priceOffers[] = new PriceOffer($offer);
+            $priceOffers[] = new PriceOfferItem($offer);
         }
-    
-        // Attach the PriceOffer items to the PriceOfferOrder
+
+        // Insert all items
         $priceOfferOrder->priceOffers()->saveMany($priceOffers);
-    
+
         DB::commit();
-    
+
         return response()->json([
-            'message' => 'Price offer created successfully.',
-            'price_offer_order' => $priceOfferOrder->load('priceOffers'),
+            'message'            => 'Price offer created successfully.',
+            'price_offer_order'  => $priceOfferOrder->load('priceOffers'),
         ], 201);
     } catch (\Exception $e) {
         DB::rollBack();
@@ -156,7 +155,7 @@ public function getUserPriceOffers(Request $request)
     try {
         // 1) Determine the client/user ID (e.g. from request or auth user)
         $clientId = Auth::user()->id;
-        // Or, if you want to use the authenticated user: 
+        // Or, if you want to use the authenticated user:
         // $clientId = auth()->id();
 
         // 2) Fetch all price offer orders for this client

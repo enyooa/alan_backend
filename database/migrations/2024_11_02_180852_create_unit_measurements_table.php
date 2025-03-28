@@ -17,6 +17,7 @@ class CreateUnitMeasurementsTable extends Migration
         Schema::create('unit_measurements', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+            $table->double('tare')->nullable()->after('name');  // Change 'after' to place the column where you'd like
             $table->timestamps();
         });
     }

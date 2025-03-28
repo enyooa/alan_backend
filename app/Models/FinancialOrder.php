@@ -15,6 +15,7 @@ class FinancialOrder extends Model
         'admin_cash_id',
         'product_subcard_id',
         'user_id',
+        'provider_id',
         'financial_element_id',
         'summary_cash',
         'date_of_check',

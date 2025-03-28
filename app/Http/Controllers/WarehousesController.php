@@ -3,81 +3,96 @@
 namespace App\Http\Controllers;
 
 use App\Models\AdminWarehouse;
+use App\Models\Expense;
 use App\Models\GeneralWarehouse;
+use App\Models\ProductSubCard;
+use App\Models\Provider;
+use App\Models\Unit_measurement;
+use App\Models\Warehouse;
+use App\Models\WarehouseItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class WarehousesController extends Controller
 {
-    public function getRemainingQuantity(Request $request, $productSubcardId)
-{
-    try {
-        $quantity = AdminWarehouse::where('product_subcard_id', $productSubcardId)->sum('quantity');
 
-        return response()->json([
-            'product_subcard_id' => $productSubcardId,
-            'remaining_quantity' => $quantity,
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'message' => 'Error fetching remaining quantity.',
-            'error' => $e->getMessage(),
-        ], 500);
+    public function getWarehouses(){
+        $warehouses = Warehouse::all();
+        return response()->json($warehouses, 200);
     }
+
+    // In WarehouseItemController
+public function getWarehouseItems(Request $request)
+{
+    $warehouseId = $request->query('warehouse_id');
+    if (!$warehouseId) {
+        return response()->json([], 200);
+    }
+
+    $items = WarehouseItem::where('warehouse_id', $warehouseId)->get();
+
+    // Build a simple array of leftovers
+    $result = [];
+    foreach ($items as $whItem) {
+        // Optionally grab product name from product_sub_cards
+        $product = DB::table('product_sub_cards')
+            ->where('id', $whItem->product_subcard_id)
+            ->select('id','name')
+            ->first();
+
+        $result[] = [
+            'product_subcard_id' => $whItem->product_subcard_id,
+            'name'               => $product ? $product->name : ('Unknown #'.$whItem->product_subcard_id),
+            'balance'            => $whItem->quantity,
+            'unit_measurement'   => $whItem->unit_measurement,
+        ];
+    }
+
+    return response()->json($result, 200);
 }
+
+//     public function getRemainingQuantity(Request $request, $productSubcardId)
+// {
+//     try {
+//         $quantity = AdminWarehouse::where('product_subcard_id', $productSubcardId)->sum('quantity');
+
+//         return response()->json([
+//             'product_subcard_id' => $productSubcardId,
+//             'remaining_quantity' => $quantity,
+//         ]);
+//     } catch (\Exception $e) {
+//         return response()->json([
+//             'message' => 'Error fetching remaining quantity.',
+//             'error' => $e->getMessage(),
+//         ], 500);
+//     }
+// }
 
 
 
     /**
      * Transfer inventory from AdminWarehouse to GeneralWarehouse
      */
-    public function transferToGeneralWarehouse(Request $request)
+
+     public function getWarehouseDetails(Request $request)
     {
-        $validatedData = $request->validate([
-            'transfers' => 'required|array',
-            'transfers.*.admin_warehouse_id' => 'required|exists:admin_warehouses,id',
-            'transfers.*.quantity' => 'required|numeric|min:0',
-            'address_id' => 'required|exists:addresses,id',
-            'user_id' => 'required|exists:users,id',
-            'date' => 'required|date',
+        
+        $productSubCards = ProductSubCard::all();
+        $unitMeasurements = Unit_measurement::all();
+        $providers = Provider::all();
+        $expenses = Expense::all();
+        $warehouses = Warehouse::all();
+        $warehouseItems = WarehouseItem::all();
+
+        return response()->json([
+            'providers' => $providers,
+            'product_sub_cards' => $productSubCards,
+            'unit_measurements' => $unitMeasurements,
+            'expenses' => $expenses,
+            'warehouses' => $warehouses,
+            'warehouseItems' => $warehouseItems,
         ]);
-
-        DB::beginTransaction();
-
-        try {
-            foreach ($validatedData['transfers'] as $transfer) {
-                $adminWarehouse = AdminWarehouse::find($transfer['admin_warehouse_id']);
-
-                if ($adminWarehouse->quantity < $transfer['quantity']) {
-                    throw new \Exception('Insufficient quantity in AdminWarehouse for product: ' . $adminWarehouse->product_card_id);
-                }
-
-                // Deduct from AdminWarehouse
-                $adminWarehouse->quantity -= $transfer['quantity'];
-                $adminWarehouse->save();
-
-                // Add to GeneralWarehouse
-                GeneralWarehouse::create([
-                    'organization_id' => $adminWarehouse->organization_id,
-                    'product_subcard_id' => $adminWarehouse->product_card_id, // Assuming product_card_id aligns with product_subcard_id
-                    'user_id' => $validatedData['user_id'],
-                    'address_id' => $validatedData['address_id'],
-                    'unit_measurement' => $adminWarehouse->unit_measurement,
-                    'quantity' => $transfer['quantity'],
-                    'price' => $adminWarehouse->price,
-                    'total_sum' => $transfer['quantity'] * $adminWarehouse->price,
-                    'date' => $validatedData['date'],
-                ]);
-            }
-
-            DB::commit();
-
-            return response()->json(['success' => true, 'message' => 'Inventory successfully transferred.']);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
-        }
     }
+    
 }

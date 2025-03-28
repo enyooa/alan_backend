@@ -4,26 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
 class Expense extends Model
 {
     use HasFactory;
 
+    protected $table = 'expenses'; // If your table name is "expenses"
     protected $fillable = [
         'name',
         'amount',
+        'document_id',
+        'date',
     ];
 
-    // Many-to-Many с AdminWarehouse
-    public function adminWarehouses()
+    // (optional) The inverse relationship if you want it:
+    public function document()
     {
-        return $this->belongsToMany(
-            AdminWarehouse::class,
-            'admin_warehouse_expense',
-            'expense_id',
-            'admin_warehouse_id'
-        )
-        // ->withPivot('expense_amount') // если нужно поле
-        ->withTimestamps();
+        return $this->belongsTo(Document::class, 'document_id');
     }
 }

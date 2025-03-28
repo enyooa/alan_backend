@@ -55,18 +55,18 @@ class PriceRequestController extends Controller
     public function bulkStore(Request $request)
     {
         Log::info($request->all());
-    
+
         // Extract the data directly from the request
         $data = $request->all();
-    
+
         // Ensure address_id exists in the first product
-        if (empty($data['price_offers'][0]['address_id'])) {
+        if (empty($data['price_offer_items'][0]['address_id'])) {
             return response()->json(['error' => 'Missing address_id in request'], 400);
         }
-    
+
         // Use the address_id from the first product
-        $addressId = $data['price_offers'][0]['address_id'];
-    
+        $addressId = $data['price_offer_items'][0]['address_id'];
+
         // Create the PriceRequest
         $priceRequest = PriceRequest::create([
             'choice_status' => 'pending', // Default choice status
@@ -75,9 +75,9 @@ class PriceRequestController extends Controller
             'start_date' => $data['start_date'],
             'end_date' => $data['end_date'],
         ]);
-    
+
         // Loop through products and create PriceOfferOrder for each
-        foreach ($data['price_offers'] as $product) {
+        foreach ($data['price_offer_items'] as $product) {
             PriceOfferOrder::create([
                 'price_request_id' => $priceRequest->id, // Link to the request
                 'product_subcard_id' => $product['product_subcard_id'],
@@ -87,10 +87,10 @@ class PriceRequestController extends Controller
                 'total' => ($product['amount'] ?? 0) * ($product['price'] ?? 0), // Calculate total
             ]);
         }
-    
+
         return response()->json(['success' => true, 'message' => 'Price offer saved successfully.']);
     }
-    
+
 
 
 

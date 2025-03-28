@@ -1,338 +1,402 @@
 <template>
-  <div class="write-off-container">
-    <h2 class="page-title">Списание</h2>
+  <div class="write-off-page-container">
+    <h2 class="page-title">Списание (со склада)</h2>
 
-    <!-- Cards Container for Write-Off Form and Inventory Summary -->
-    <div class="cards-container">
-      <!-- Write-Off Form Card -->
-      <div class="card product-card">
-        <div class="card-header">
-          <h3>Товары для списания</h3>
-        </div>
-        <div class="card-body">
-          <div v-if="loadingProductSubcards || loadingUnits" class="loading-indicator">
-            <p>Загрузка...</p>
+    <!-- Card: От какого склада / Дата -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Склад и дата списания</h3>
+      </div>
+      <div class="card-body">
+        <div class="top-row">
+          <!-- Откуда (Warehouse) -->
+          <div class="dropdown-column">
+            <label class="dropdown-label">Откуда (Склад):</label>
+            <select
+              v-model="selectedSourceWarehouse"
+              class="dropdown-select"
+              @change="onSourceWarehouseChange"
+            >
+              <option value="">— выберите склад —</option>
+              <option
+                v-for="wh in warehouses"
+                :key="wh.id"
+                :value="wh.id"
+              >
+                {{ wh.name }}
+              </option>
+            </select>
           </div>
-          <div v-else-if="productSubcardsError || unitsError" class="error-message">
-            <p>{{ productSubcardsError || unitsError }}</p>
-          </div>
-          <div v-else>
-            <table class="styled-table">
-              <thead>
-                <tr>
-                  <th>Подкарточка</th>
-                  <th>Партия</th>
-                  <th>Остаток (ед. изм.)</th>
-                  <th>Ед. изм.</th>
-                  <th>Кол-во списываемое</th>
-                  <th>Удалить</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, index) in writeOffRows" :key="row._key || index">
-                  <!-- Product Dropdown -->
-                  <td>
-                    <select
-                      v-model="row.product_subcard_id"
-                      class="table-select"
-                      @change="onSubcardChange(row)"
-                    >
-                      <option value="">—</option>
-                      <option
-                        v-for="subcard in productSubcards"
-                        :key="subcard.id"
-                        :value="subcard.id"
-                      >
-                        {{ subcard.name }}
-                      </option>
-                    </select>
-                  </td>
-                  <!-- Batch Dropdown -->
-                  <td>
-                    <select
-                      v-if="row.product_subcard_id && getBatchesForSubcard(row.product_subcard_id).length"
-                      v-model="row.selectedBatchId"
-                      class="table-select"
-                    >
-                      <option value="">— Выберите партию —</option>
-                      <option
-                        v-for="batch in getBatchesForSubcard(row.product_subcard_id)"
-                        :key="batch.id"
-                        :value="batch.id"
-                      >
-                        {{ batch.quantity }} {{ batch.unit_measurement }} ({{ batch.date }})
-                      </option>
-                    </select>
-                    <span v-else>-</span>
-                  </td>
-                  <!-- Remaining Inventory -->
-                  <td>
-                    <span v-if="row.selectedBatchId">
-                      {{ getBatchById(row.selectedBatchId)?.quantity }}
-                    </span>
-                    <span v-else-if="row.product_subcard_id">
-                      {{ findSubcard(row.product_subcard_id)?.total_quantity || 0 }}
-                    </span>
-                    <span v-else>-</span>
-                  </td>
-                  <!-- Unit Measurement Dropdown -->
-                  <td>
-                    <select v-model="row.unit_measurement" class="table-select">
-                      <option value="">—</option>
-                      <option
-                        v-for="unit in units"
-                        :key="unit.id"
-                        :value="unit.name"
-                      >
-                        {{ unit.name }}
-                      </option>
-                    </select>
-                  </td>
-                  <!-- Write-Off Quantity -->
-                  <td>
-                    <input
-                      type="number"
-                      class="table-input"
-                      v-model.number="row.amount"
-                      @change="validateAmount(row)"
-                    />
-                  </td>
-                  <!-- Delete Button -->
-                  <td>
-                    <button class="remove-btn" @click="removeWriteOffRow(index)">❌</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <!-- Add New Row Button -->
-            <div class="mt-2">
-              <button class="action-btn" @click="addWriteOffRow">
-                ➕ Добавить строку
-              </button>
-            </div>
+
+          <!-- Дата -->
+          <div class="dropdown-column">
+            <label class="dropdown-label">Дата:</label>
+            <input
+              type="date"
+              v-model="selectedDate"
+              class="dropdown-select"
+            />
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Inventory Summary Card (Right Side) -->
-      <div class="card cost-price-card">
-        <div class="card-header">
-          <h3>Остаток товаров</h3>
+    <!-- Two cards: Left for writing off items, right for leftover info -->
+    <div class="cards-container mt-3">
+      <!-- Left card: items to be written off -->
+      <div class="card card-writeoff">
+        <div class="card-header flex-between">
+          <h3>Товары для Списания</h3>
+          <button class="action-btn" @click="addProductRow">
+            ➕ Добавить строку
+          </button>
         </div>
         <div class="card-body">
           <table class="styled-table">
             <thead>
               <tr>
-                <th>Подкарточка</th>
-                <th>Остаток</th>
+                <th>Товар (ост.)</th>
+                <th>Кол-во</th>
+                <th>Ед. изм</th>
+                <th>Удалить</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="sub in productSubcards" :key="sub.id">
-                <td>{{ sub.name }}</td>
+              <tr
+                v-for="(row, idx) in productRows"
+                :key="row._key"
+              >
+                <!-- Dropdown of leftover items from the selected warehouse -->
                 <td>
-                  {{ sub.total_quantity !== null ? sub.total_quantity + ' ' + (sub.unit_measurement || '') : '-' }}
+                  <select
+                    v-model="row.product_subcard_id"
+                    class="table-select"
+                    @change="onProductChange(row)"
+                  >
+                    <option disabled value="">
+                      — Товар —
+                    </option>
+                    <option
+                      v-for="left in leftovers"
+                      :key="left.product_subcard_id"
+                      :value="left.product_subcard_id"
+                    >
+                      {{ left.name }} ({{ formatNumber(left.balance) }})
+                    </option>
+                  </select>
+                </td>
+
+                <!-- Кол-во списания -->
+                <td>
+                  <input
+                    type="number"
+                    class="table-input"
+                    v-model.number="row.quantity"
+                    @change="onQuantityChange(row)"
+                  />
+                </td>
+
+                <!-- Ед. изм -->
+                <td>
+                  <select
+                    v-model="row.unit_measurement"
+                    class="table-select"
+                  >
+                    <option disabled value="">—</option>
+                    <option
+                      v-for="u in units"
+                      :key="u.id"
+                      :value="u.name"
+                    >
+                      {{ u.name }}
+                    </option>
+                  </select>
+                </td>
+
+                <!-- Remove button -->
+                <td>
+                  <button class="remove-btn" @click="removeProductRow(idx)">
+                    ❌
+                  </button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
+        <!-- Save button & message -->
+        <div class="mt-2">
+          <button class="action-btn save-btn" @click="saveWriteOff">
+            Сохранить списание
+          </button>
+        </div>
+        <div v-if="message" :class="['feedback-message', messageType]">
+          {{ message }}
+        </div>
       </div>
-    </div>
 
-    <!-- Submit Button and Global Message -->
-    <div class="mt-3">
-      <button class="action-btn save-btn" @click="submitWriteOff">
-        Сохранить
-      </button>
-    </div>
-    <div v-if="globalMessage" :class="['feedback-message', globalMessageType]">
-      {{ globalMessage }}
-    </div>
+      <!-- Right card: leftover info for the selected warehouse -->
+      <div class="card card-leftovers">
+        <div class="card-header">
+          <h3>Остатки на складе "{{ sourceWarehouseName }}"</h3>
+        </div>
+        <div class="card-body">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th>Остаток</th>
+                <th>Ед. изм</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="left in leftovers" :key="left.product_subcard_id">
+                <td>{{ left.name }}</td>
+                <td>{{ formatNumber(left.balance) }}</td>
+                <td>{{ left.unit_measurement || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- cards-container -->
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from "vue";
 import axios from "axios";
+import { ref, onMounted, computed } from "vue";
 
 export default {
-  name: "WriteOffPage",
+  name: "WarehouseWriteOffPage",
   setup() {
-    const writeOffRows = ref([]);
-    const productSubcards = ref([]);
-    const units = ref([]);
-    const globalMessage = ref("");
-    const globalMessageType = ref("");
-    const loadingProductSubcards = ref(false);
-    const loadingUnits = ref(false);
-    const productSubcardsError = ref("");
-    const unitsError = ref("");
+    // 1) Warehouses for "from which warehouse" selection
+    const warehouses = ref([]);
 
-    onMounted(async () => {
-      await fetchProductSubcards();
-      await fetchUnits();
-      addWriteOffRow();
+    // 2) Leftovers from the selected warehouse
+    const leftovers = ref([]);
+
+    // 3) Units
+    const units = ref([]);
+
+    // 4) Selected warehouse & date
+    const selectedSourceWarehouse = ref("");
+    const selectedDate = ref("");
+
+    // 5) productRows
+    const productRows = ref([
+      {
+        _key: Date.now(),
+        product_subcard_id: "",
+        quantity: 0,
+        unit_measurement: ""
+      }
+    ]);
+
+    // Feedback
+    const message = ref("");
+    const messageType = ref("");
+
+    // Formatting function to remove trailing zeros like 10.000 -> 10
+    function formatNumber(value) {
+      if (value === null || value === undefined) return "";
+      const num = Number(value);
+      if (Number.isNaN(num)) return value; // not a valid number
+
+      // If effectively an integer, show no decimals
+      if (Number.isInteger(num)) {
+        return num.toString();
+      }
+      // Otherwise, show up to 3 decimals. Then remove trailing zeros by converting to float again.
+      return parseFloat(num.toFixed(3)).toString();
+    }
+
+    // Computed: name of the selected warehouse
+    const sourceWarehouseName = computed(() => {
+      if (!selectedSourceWarehouse.value) return "—";
+      const found = warehouses.value.find(w => w.id == selectedSourceWarehouse.value);
+      if (!found) return "???";
+      return found.name;
     });
 
-    const fetchProductSubcards = async () => {
-      loadingProductSubcards.value = true;
+    // On mount
+    onMounted(() => {
+      fetchWarehouses();
+      fetchUnits();
+    });
+
+    // Fetch warehouses
+    async function fetchWarehouses() {
       try {
-        const { data } = await axios.get("/api/product_subcards");
-        productSubcards.value = data;
+        const resp = await axios.get("/api/getWarehouses");
+        warehouses.value = resp.data;
       } catch (err) {
-        productSubcardsError.value = "Ошибка загрузки подкарточек.";
-      } finally {
-        loadingProductSubcards.value = false;
+        console.error("Ошибка при загрузке складов:", err);
       }
-    };
+    }
 
-    const fetchUnits = async () => {
-      loadingUnits.value = true;
+    // Fetch units
+    async function fetchUnits() {
       try {
-        const { data } = await axios.get("/api/unit-measurements");
-        units.value = data;
+        const resp = await axios.get("/api/unit-measurements");
+        units.value = resp.data;
       } catch (err) {
-        unitsError.value = "Ошибка загрузки единиц измерения.";
-      } finally {
-        loadingUnits.value = false;
+        console.error("Ошибка при загрузке единиц измерения:", err);
       }
-    };
+    }
 
-    const addWriteOffRow = () => {
-      writeOffRows.value.push({
-        product_subcard_id: "",
-        unit_measurement: "",
-        amount: 0,
-        selectedBatchId: "",
-      });
-    };
-
-    const removeWriteOffRow = (idx) => {
-      writeOffRows.value.splice(idx, 1);
-    };
-
-    const findSubcard = (id) => {
-      return productSubcards.value.find((sub) => sub.id === id) || null;
-    };
-
-    // Returns all batches for the selected product subcard.
-    const getBatchesForSubcard = (subcardId) => {
-      const subcard = findSubcard(subcardId);
-      return subcard && subcard.batches ? subcard.batches : [];
-    };
-
-    // Returns batch details by batch ID.
-    const getBatchById = (batchId) => {
-      for (const sub of productSubcards.value) {
-        if (sub.batches) {
-          const found = sub.batches.find((batch) => batch.id === batchId);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const onSubcardChange = (row) => {
-      // Reset batch selection and amount when the product changes.
-      row.selectedBatchId = "";
-      row.amount = 0;
-    };
-
-    const validateAmount = (row) => {
-      if (row.selectedBatchId) {
-        const batch = getBatchById(row.selectedBatchId);
-        if (batch && row.amount > batch.quantity) {
-          alert(`Количество для выбранной партии не может превышать ${batch.quantity}.`);
-          row.amount = batch.quantity;
-        }
-      } else {
-        const sub = findSubcard(row.product_subcard_id);
-        if (sub && row.amount > (sub.total_quantity || 0)) {
-          alert(`Количество для "${sub.name}" не может превышать общий остаток (${sub.total_quantity || 0}).`);
-          row.amount = sub.total_quantity || 0;
-        }
-      }
-    };
-
-    const submitWriteOff = async () => {
-      if (!writeOffRows.value.length) {
-        alert("Заполните таблицу перед отправкой");
+    // When user selects a warehouse, load leftovers from `warehouse_items`
+    async function onSourceWarehouseChange() {
+      if (!selectedSourceWarehouse.value) {
+        leftovers.value = [];
         return;
       }
-      // Prepare payload. For each row, send product_subcard_id, unit_measurement, amount, and optional batch_id.
-      const payload = writeOffRows.value.map((row) => ({
-        product_subcard_id: row.product_subcard_id,
-        unit_measurement: row.unit_measurement,
-        amount: row.amount,
-        batch_id: row.selectedBatchId || null,
-      }));
       try {
-        await axios.post("/api/bulkWriteOff", { writeoffs: payload }, {
-          headers: { "Content-Type": "application/json" },
+        // e.g. GET /api/warehouse-items?warehouse_id=XXX
+        const resp = await axios.get("/api/warehouse-items", {
+          params: { warehouse_id: selectedSourceWarehouse.value }
         });
-        globalMessage.value = "Списание сохранено!";
-        globalMessageType.value = "success";
-        writeOffRows.value = [];
+        leftovers.value = resp.data; 
       } catch (err) {
-        globalMessage.value = "Ошибка при сохранении списания.";
-        globalMessageType.value = "error";
+        console.error("Ошибка при загрузке остатков:", err);
       }
-    };
+    }
+
+    // Add/remove row
+    function addProductRow() {
+      productRows.value.push({
+        _key: Date.now() + Math.random(),
+        product_subcard_id: "",
+        quantity: 0,
+        unit_measurement: ""
+      });
+    }
+    function removeProductRow(idx) {
+      productRows.value.splice(idx,1);
+    }
+
+    // Reset quantity / unit when product changes
+    function onProductChange(row) {
+      row.quantity = 0;
+      row.unit_measurement = "";
+    }
+
+    // Ensure we don't exceed leftover stock
+    function onQuantityChange(row) {
+      const maxQty = getBalance(row.product_subcard_id);
+      if (row.quantity > maxQty) {
+        alert(`Нельзя списать больше, чем ${maxQty}.`);
+        row.quantity = maxQty;
+      }
+    }
+    function getBalance(product_subcard_id) {
+      const item = leftovers.value.find(l => l.product_subcard_id === product_subcard_id);
+      return item ? item.balance : 0;
+    }
+
+    // Save write-off
+    async function saveWriteOff() {
+      // Basic validations
+      if (!selectedSourceWarehouse.value) {
+        alert("Укажите склад, с которого списываем");
+        return;
+      }
+      if (!selectedDate.value) {
+        alert("Укажите дату списания");
+        return;
+      }
+      if (!productRows.value.length) {
+        alert("Нет ни одной строки для списания");
+        return;
+      }
+
+      // Build items payload
+      const items = productRows.value.map(r => ({
+        product_subcard_id: r.product_subcard_id,
+        quantity: r.quantity,
+        unit_measurement: r.unit_measurement
+      }));
+
+      try {
+        // e.g. POST /api/writeoff/store
+        await axios.post("/api/writeoff/store", {
+          warehouse_id: selectedSourceWarehouse.value,
+          document_date: selectedDate.value,
+          items
+        });
+
+        message.value = "Списание успешно сохранено!";
+        messageType.value = "success";
+
+        // Reset
+        selectedSourceWarehouse.value = "";
+        selectedDate.value = "";
+        productRows.value = [
+          {
+            _key: Date.now(),
+            product_subcard_id: "",
+            quantity: 0,
+            unit_measurement: ""
+          }
+        ];
+        leftovers.value = [];
+      } catch (err) {
+        console.error("Ошибка при сохранении списания:", err);
+        message.value = "Ошибка при сохранении списания.";
+        messageType.value = "error";
+      }
+    }
 
     return {
-      writeOffRows,
-      productSubcards,
+      // State
+      warehouses,
+      leftovers,
       units,
-      globalMessage,
-      globalMessageType,
-      loadingProductSubcards,
-      loadingUnits,
-      productSubcardsError,
-      unitsError,
-      findSubcard,
-      getBatchesForSubcard,
-      getBatchById,
-      onSubcardChange,
-      validateAmount,
-      addWriteOffRow,
-      removeWriteOffRow,
-      submitWriteOff,
+      selectedSourceWarehouse,
+      selectedDate,
+      productRows,
+      message,
+      messageType,
+
+      // Computed
+      sourceWarehouseName,
+
+      // Methods
+      fetchWarehouses,
+      fetchUnits,
+      onSourceWarehouseChange,
+      addProductRow,
+      removeProductRow,
+      onProductChange,
+      onQuantityChange,
+      getBalance,
+      saveWriteOff,
+
+      // The format function
+      formatNumber,
     };
   },
 };
 </script>
 
 <style scoped>
-.write-off-container {
-  max-width: 1100px;
+.write-off-page-container {
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
 .page-title {
   text-align: center;
+  margin-bottom: 20px;
+  font-size: 1.4rem;
   color: #0288d1;
-  margin-bottom: 20px;
-}
-
-/* Cards Container for Side-by-Side Layout */
-.cards-container {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-.product-card {
-  flex: 2;
-}
-.cost-price-card {
-  flex: 1;
 }
 
 /* Cards */
 .card {
   background-color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   margin-bottom: 20px;
   overflow: hidden;
 }
@@ -344,13 +408,54 @@ export default {
 .card-header h3 {
   margin: 0;
   color: #333;
-  font-size: 16px;
 }
 .card-body {
   padding: 16px;
 }
+.mt-2 { margin-top: 12px; }
+.mt-3 { margin-top: 20px; }
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 
-/* Styled Table for Products */
+/* Layout for two columns */
+.cards-container {
+  display: flex;
+  gap: 20px;
+}
+.card-writeoff {
+  flex: 2;
+}
+.card-leftovers {
+  flex: 1;
+}
+
+/* Row styling */
+.top-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.dropdown-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+.dropdown-label {
+  font-weight: bold;
+  color: #555;
+}
+.dropdown-select {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+/* Tables */
 .styled-table {
   width: 100%;
   border-collapse: collapse;
@@ -361,27 +466,24 @@ export default {
 }
 .styled-table th,
 .styled-table td {
-  padding: 10px;
   border: 1px solid #ddd;
+  padding: 8px;
   text-align: center;
-  font-size: 14px;
 }
-
-/* Table for Cost Prices */
-.cost-table {
+.table-select {
   width: 100%;
-  border-collapse: collapse;
-}
-.cost-table th,
-.cost-table td {
-  padding: 10px;
+  padding: 8px;
   border: 1px solid #ddd;
-  text-align: center;
+  border-radius: 6px;
   font-size: 14px;
 }
-.cost-table thead tr {
-  background-color: #0288d1;
-  color: #fff;
+.table-input {
+  width: 70px;
+  padding: 6px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: right;
 }
 
 /* Buttons */
@@ -389,13 +491,16 @@ export default {
   background-color: #0288d1;
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 10px 14px;
   cursor: pointer;
   font-size: 14px;
 }
 .action-btn:hover {
-  background-color: #026ca0;
+  background-color: #0270a0;
+}
+.save-btn {
+  width: 100%;
 }
 .remove-btn {
   background-color: #f44336;
@@ -404,34 +509,18 @@ export default {
   border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
-  font-size: 14px;
 }
 .remove-btn:hover {
   background-color: #d32f2f;
 }
-.save-btn {
-  width: 100%;
-  margin-top: 10px;
-}
 
-/* Table selects & inputs */
-.table-select,
-.table-input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-/* Feedback Message */
+/* Feedback */
 .feedback-message {
-  margin-top: 20px;
+  margin-top: 16px;
   text-align: center;
   font-weight: bold;
   padding: 10px;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 6px;
 }
 .feedback-message.success {
   background-color: #d4edda;
@@ -440,10 +529,5 @@ export default {
 .feedback-message.error {
   background-color: #f8d7da;
   color: #721c24;
-}
-.flex-between {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 </style>

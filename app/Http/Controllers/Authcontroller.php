@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PhoneVerification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Models\Role;
+use Illuminate\Support\Facades\Http;
 use Twilio\Rest\Client; // <--
 
 use Illuminate\Validation\ValidationException;
@@ -56,39 +58,43 @@ class AuthController extends Controller
         Log::info('Register Request', $request->all());
 
         try {
-            // 1. Validate input
+            // Validate input
             $fields = $request->validate([
-                "first_name"       => 'required|string|max:255',
-                "last_name"        => 'nullable|string|max:255',
-                "surname"          => 'nullable|string|max:255',
-                "whatsapp_number"  => 'required|string|unique:users|max:15',
-                "password"         => 'required|string|confirmed|min:8',
+                "first_name"      => 'required|string|max:255',
+                "last_name"       => 'nullable|string|max:255',
+                "surname"         => 'nullable|string|max:255',
+                "whatsapp_number" => 'required|string|unique:users|max:15',
+                "password"        => 'required|string|confirmed|min:8',
             ]);
 
-            // 2. Create the user
+            // Format the phone number (always convert to e.g. "7076069831")
+            $formattedNumber = $this->formatPhoneNumber($fields['whatsapp_number']);
+            $fields['whatsapp_number'] = $formattedNumber;
+
+            // Create the user
             $user = User::create([
                 'first_name'      => $fields['first_name'],
                 'last_name'       => $fields['last_name'] ?? '',
                 'surname'         => $fields['surname'] ?? '',
-                'whatsapp_number' => $fields['whatsapp_number'],
+                'whatsapp_number' => $formattedNumber,
                 'password'        => Hash::make($fields['password']),
             ]);
 
-            // 3. Assign the 'client' role, or any default role
+            // Assign 'client' role
             $clientRole = Role::where('name', 'client')->first();
             if (!$clientRole) {
                 return response()->json([
-                    'message' => 'Default "client" role not found. Please create it first.'
+                    'message' => 'Default "client" role not found.'
                 ], 500);
             }
             $user->roles()->attach($clientRole);
 
-            // 4. Generate a token (if you need to return it to the client)
+            // Generate token
             $token = $user->createToken('user-auth-token')->plainTextToken;
             $roles = $user->roles()->pluck('name')->toArray();
 
             Log::info('Register Response Payload', [
-                'id' => $user->id,
+                'id'   => $user->id,
                 'user' => [
                     'first_name'      => $user->first_name,
                     'last_name'       => $user->last_name,
@@ -96,42 +102,33 @@ class AuthController extends Controller
                     'whatsapp_number' => $user->whatsapp_number,
                     'roles'           => $roles,
                 ],
-                'token' => $token,
-                'message' => 'User registered and verification code sent!',
+                'token'   => $token,
+                'message' => 'User registered!',
             ]);
 
-            // 5. Prepare phone number for Twilio (E.164 format)
-            $phoneNumber = $user->whatsapp_number;
-            if (!str_starts_with($phoneNumber, '+')) {
-                $phoneNumber = '+'.$phoneNumber;
+            // Check WhatsApp via GreenAPI
+            $hasWhatsapp = $this->checkWhatsappGreenApi($formattedNumber);
+            if (!$hasWhatsapp) {
+                Log::info("User does NOT have WhatsApp. Possibly send SMS instead...");
+            } else {
+                Log::info("User HAS WhatsApp. Maybe send them a WhatsApp message...");
             }
 
-            // 6. Send Twilio Verification (SMS or WhatsApp)
-            $twilio = new Client(
-                config('services.twilio.account_sid'),
-                config('services.twilio.auth_token')
-            );
+            // Trigger sending a verification code now
+            $this->sendVerificationCode($formattedNumber);
 
-            $verification = $twilio->verify->v2->services(config('services.twilio.verify_sid'))
-                ->verifications
-                ->create($phoneNumber, "sms");
-                // If you want WhatsApp:
-                // ->create("whatsapp:$phoneNumber", "whatsapp");
-
-            Log::info("Twilio verification sent", ['sid' => $verification->sid]);
-
-            // 7. Return success response
             return response()->json([
-                'id'    => $user->id,
-                'user'  => [
+                'id'           => $user->id,
+                'user'         => [
                     'first_name'      => $user->first_name,
                     'last_name'       => $user->last_name,
                     'surname'         => $user->surname,
                     'whatsapp_number' => $user->whatsapp_number,
                     'roles'           => $roles,
                 ],
-                'token'   => $token,
-                'message' => 'User registered and verification code sent!',
+                'token'        => $token,
+                'has_whatsapp' => $hasWhatsapp,
+                'message'      => 'User registered! Verification code sent.',
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -142,6 +139,139 @@ class AuthController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Generate a random 4-digit code, store it in PhoneVerification table,
+     * and send it via GreenAPI.
+     */
+    public function sendVerificationCode(String $request)
+{
+    // Extract and format the phone number from the request.
+    $phoneNumber = $this->formatPhoneNumber($request);
+
+    // Generate a 4-digit random code.
+    $code = rand(1000, 9999);
+
+    // Store or update the verification record.
+    PhoneVerification::updateOrCreate(
+        ['phone_number' => $phoneNumber],
+        ['code' => $code]
+    );
+
+    // Prepare GreenAPI call.
+    $chatId = $phoneNumber . '@c.us';
+    $url = 'https://7105.api.greenapi.com/waInstance7105215666/sendMessage/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba';
+
+    $payload = [
+        'chatId'  => $chatId,
+        'message' => "Ваш код: $code",
+    ];
+
+    // Send via HTTP.
+    Http::withHeaders([
+        'Content-Type' => 'application/json',
+    ])->post($url, $payload);
+}
+
+    /**
+     * Verify the code entered by the user.
+     */
+    public function verifyCode(Request $request)
+    {
+        $validated = $request->validate([
+            'phone_number' => 'required|string',
+            'code'         => 'required|string',
+        ]);
+
+        // Format the phone number consistently.
+        $phone = $this->formatPhoneNumber($validated['phone_number']);
+
+        // Check if the code exists for this phone number.
+        $verification = PhoneVerification::where('phone_number', $phone)
+            ->where('code', $validated['code'])
+            ->first();
+
+        if (!$verification) {
+            return response()->json(['message' => 'Неверный код'], 400);
+        }
+
+        // Remove the verification record.
+        $verification->delete();
+
+        // Mark the user as verified by setting phone_verified_at.
+        $user = User::where('whatsapp_number', $phone)->first();
+        if ($user) {
+            $user->phone_verified_at = now();
+            $user->save();
+        }
+
+        return response()->json(['message' => 'Успешно подтверждено!']);
+    }
+
+    /**
+     * Check if the given phone number is registered with WhatsApp using GreenAPI.
+     */
+    private function checkWhatsappGreenApi($phoneNumber)
+    {
+        try {
+            // Karla
+            $url = "https://7105.api.greenapi.com/waInstance7105215666/checkWhatsapp/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba";
+
+            // my number instance
+            // $url = "https://7103.api.greenapi.com/waInstance7103137262/checkWhatsapp/671d758833a747d9b00777a1c82e4436cb5d18508aac45b29f";
+            // my number instance
+
+            $client = new \GuzzleHttp\Client();
+
+            $response = $client->post($url, [
+                'json' => [
+                    'phoneNumber' => $phoneNumber,
+                ],
+            ]);
+
+            $data = json_decode($response->getBody(), true);
+            return isset($data['existsWhatsapp']) && $data['existsWhatsapp'] === true;
+        } catch (\Exception $e) {
+            Log::error("Green-API checkWhatsApp failed: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * (Optional) Send a WhatsApp message using GreenAPI.
+     */
+    private function sendWhatsAppGreenApi($phoneNumber, $message)
+    {
+        $url = "https://7105.api.greenapi.com/waInstance7105215666/sendMessage/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba";
+        $chatId = ltrim($phoneNumber, '+') . '@c.us';
+
+        $client = new \GuzzleHttp\Client();
+        $client->post($url, [
+            'json' => [
+                'chatId'  => $chatId,
+                'message' => $message,
+            ],
+        ]);
+    }
+
+    /**
+     * Helper function to format the phone number.
+     *
+     * Converts numbers such as:
+     * - "87076069831" => "7076069831"
+     * - "+7707609831" => "7076069831"
+     * - "7076069831" remains unchanged.
+     */
+    private function formatPhoneNumber($phone)
+    {
+        $phone = trim($phone);
+        if (strpos($phone, '+7') === 0) {
+            return '7' . substr($phone, 2);
+        } elseif (strpos($phone, '8') === 0) {
+            return '7' . substr($phone, 1);
+        }
+        return $phone;
     }
 
     /**
@@ -192,55 +322,5 @@ class AuthController extends Controller
         return response()->json(['message' => 'Account successfully created'], 201);
     }
 
-    /**
-     * Verify phone using Twilio
-     */
-    public function verifyPhone(Request $request)
-    {
-        // 1. Validate input
-        $request->validate([
-            'phone' => 'required|string',
-            'code'  => 'required|string',
-        ]);
 
-        try {
-            // 2. Create Twilio client
-            $twilio = new Client(
-                config('services.twilio.account_sid'),
-                config('services.twilio.auth_token')
-            );
-
-            // 3. Call Twilio Verify -> verificationChecks
-            $verificationCheck = $twilio->verify->v2->services(config('services.twilio.verify_sid'))
-                ->verificationChecks
-                ->create([
-                    'to'   => $request->phone,
-                    'code' => $request->code,
-                ]);
-
-            // 4. Check status
-            if ($verificationCheck->status === 'approved') {
-                // (Optional) Mark user as verified in DB if desired
-                // $user = User::where('whatsapp_number', ltrim($request->phone, '+'))->first();
-                // $user->update(['phone_verified_at' => now()]);
-
-                return response()->json([
-                    'message' => 'Verification successful!',
-                    'status'  => $verificationCheck->status
-                ], 200);
-            } else {
-                // If not approved, code is invalid or expired
-                return response()->json([
-                    'message' => 'Invalid or expired code',
-                    'status'  => $verificationCheck->status
-                ], 400);
-            }
-        } catch (\Exception $e) {
-            Log::error("Error verifying phone: " . $e->getMessage());
-            return response()->json([
-                'message' => 'Error verifying code',
-                'error'   => $e->getMessage()
-            ], 500);
-        }
-    }
 }

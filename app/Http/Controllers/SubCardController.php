@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AdminWarehouse;
+use App\Models\Document;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
 use Illuminate\Http\Request;
@@ -41,32 +42,7 @@ class SubCardController extends Controller
     public function getSubCards()
     {
         try {
-            $subCards = ProductSubCard::all()->map(function ($subCard) {
-                // Retrieve all AdminWarehouse entries (batches) for this subcard
-                $batches = AdminWarehouse::where('product_subcard_id', $subCard->id)->get();
-
-                // Calculate the total quantity from all batches
-                $totalQuantity = $batches->sum('quantity');
-
-                // Map each batch to return its details
-                $batchDetails = $batches->map(function ($batch) {
-                    return [
-                        'id'               => $batch->id,
-                        'quantity'         => $batch->quantity,
-                        'unit_measurement' => $batch->unit_measurement,
-                        'price'            => $batch->price,
-                        'cost_price'       => $batch->cost_price,
-                        'date'             => $batch->date,
-                        // Add other fields if needed...
-                    ];
-                });
-
-                // Return the original subcard data along with the total quantity and batch details
-                return array_merge($subCard->toArray(), [
-                    'total_quantity' => $totalQuantity,
-                    'batches'        => $batchDetails,
-                ]);
-            });
+            $subCards = ProductSubCard::all();
 
             return response()->json($subCards, 200);
         } catch (\Exception $e) {

@@ -1,7 +1,7 @@
 <template>
    <div class="price-offer-container">
      <h2 class="page-title">Редактировать ценовое предложение</h2>
- 
+
      <!-- Card for Client, Address & Dates -->
      <div class="card">
        <div class="card-header">
@@ -23,7 +23,7 @@
                </option>
              </select>
            </div>
- 
+
            <!-- Address Dropdown -->
            <div class="dropdown-column">
              <label class="dropdown-label">Адрес</label>
@@ -38,7 +38,7 @@
                </option>
              </select>
            </div>
- 
+
            <!-- Date Pickers -->
            <div class="dropdown-column">
              <label class="dropdown-label">Начальная дата</label>
@@ -51,7 +51,7 @@
          </div>
        </div>
      </div>
- 
+
      <!-- Cards Container for Products -->
      <div class="cards-container mt-3">
        <!-- Card for Product Table -->
@@ -174,10 +174,10 @@
            </div>
          </div>
        </div>
- 
+
        <!-- (Optional) Card for Cost Prices can remain here if needed -->
      </div>
- 
+
      <!-- Submit Button and Global Message -->
      <div class="mt-3">
        <button class="action-btn save-btn" @click="updatePriceOffer">
@@ -189,11 +189,11 @@
      </div>
    </div>
  </template>
- 
+
  <script>
  import { ref, onMounted } from "vue";
  import axios from "axios";
- 
+
  export default {
    name: "PriceOfferEdit",
    props: {
@@ -208,11 +208,11 @@
      const selectedAddress = ref(props.record.address_id);
      const startDate = ref(props.record.start_date);
      const endDate = ref(props.record.end_date);
-     // Assume record.price_offers is an array of product rows
-     const productRows = ref(props.record.price_offers ? [...props.record.price_offers] : []);
+     // Assume record.price_offer_items is an array of product rows
+     const productRows = ref(props.record.price_offer_items ? [...props.record.price_offer_items] : []);
      const globalMessage = ref("");
      const globalMessageType = ref("");
- 
+
      // Data for clients, product subcards, and units
      const clientList = ref([]);
      const productSubcards = ref([]);
@@ -221,7 +221,7 @@
      const loadingUnits = ref(false);
      const productSubcardsError = ref("");
      const unitsError = ref("");
- 
+
      // Fetch supporting data
      const fetchClientsAndAddresses = async () => {
        try {
@@ -233,7 +233,7 @@
          console.error("Error fetching client & address data:", err);
        }
      };
- 
+
      const fetchProductSubcards = async () => {
        loadingProductSubcards.value = true;
        try {
@@ -245,7 +245,7 @@
          loadingProductSubcards.value = false;
        }
      };
- 
+
      const fetchUnits = async () => {
        loadingUnits.value = true;
        try {
@@ -257,13 +257,13 @@
          loadingUnits.value = false;
        }
      };
- 
+
      onMounted(async () => {
        await fetchClientsAndAddresses();
        await fetchProductSubcards();
        await fetchUnits();
      });
- 
+
      // Product row helpers
      const addProductRow = () => {
        productRows.value.push({
@@ -274,20 +274,20 @@
          selectedBatchId: "",
        });
      };
- 
+
      const removeProductRow = (idx) => {
        productRows.value.splice(idx, 1);
      };
- 
+
      const findSubcard = (id) => {
        return productSubcards.value.find((sub) => sub.id === id) || null;
      };
- 
+
      const getBatchesForSubcard = (subcardId) => {
        const subcard = findSubcard(subcardId);
        return subcard && subcard.batches ? subcard.batches : [];
      };
- 
+
      const getBatchById = (batchId) => {
        for (const sub of productSubcards.value) {
          if (sub.batches) {
@@ -297,12 +297,12 @@
        }
        return null;
      };
- 
+
      const onSubcardChange = (row) => {
        row.selectedBatchId = "";
        row.amount = 0;
      };
- 
+
      const validateAmount = (row) => {
        if (row.selectedBatchId) {
          const batch = getBatchById(row.selectedBatchId);
@@ -318,7 +318,7 @@
          }
        }
      };
- 
+
      const getAddressesForClient = (clientId) => {
        if (!clientId) return [];
        const client = clientList.value.find(
@@ -326,7 +326,7 @@
        );
        return client ? client.addresses : [];
      };
- 
+
      // Submit updated price offer
      const updatePriceOffer = async () => {
        if (
@@ -339,12 +339,12 @@
          alert("Заполните все поля (клиент, адрес, даты и товары)!");
          return;
        }
- 
+
        let totalSum = 0;
        productRows.value.forEach((row) => {
          totalSum += (row.amount || 0) * (row.price || 0);
        });
- 
+
        const rows = productRows.value.map((row) => {
          const payload = {
            product_subcard_id: row.product_subcard_id,
@@ -358,16 +358,16 @@
          }
          return payload;
        });
- 
+
        const payload = {
          client_id: selectedClient.value,
          address_id: selectedAddress.value,
          start_date: startDate.value,
          end_date: endDate.value,
          totalsum: totalSum,
-         price_offers: rows,
+         price_offer_items: rows,
        };
- 
+
        try {
          // Update endpoint – adjust if necessary.
          await axios.patch(`/api/priceOffers/${props.record.id}`, payload, {
@@ -380,7 +380,7 @@
          globalMessageType.value = "error";
        }
      };
- 
+
      return {
        selectedClient,
        selectedAddress,
@@ -409,10 +409,10 @@
    },
  };
  </script>
- 
+
  <style scoped>
  /* Use the same styles as in your PriceOfferPage, for example: */
- 
+
  .price-offer-container {
    max-width: 1100px;
    margin: 0 auto;
@@ -423,7 +423,7 @@
    color: #0288d1;
    margin-bottom: 20px;
  }
- 
+
  /* Card styles */
  .card {
    background-color: #fff;
@@ -447,7 +447,7 @@
  .mt-3 {
    margin-top: 20px;
  }
- 
+
  /* Top row */
  .top-row {
    display: flex;
@@ -471,7 +471,7 @@
    border-radius: 6px;
    font-size: 14px;
  }
- 
+
  /* Table styles */
  .table-container {
    background-color: #fff;
@@ -494,7 +494,7 @@
    border: 1px solid #ddd;
    text-align: center;
  }
- 
+
  /* Buttons */
  .action-btn {
    background-color: #0288d1;
@@ -524,7 +524,7 @@
    width: 100%;
    margin-top: 10px;
  }
- 
+
  /* Table inputs/selects */
  .table-select,
  .table-input {
@@ -534,7 +534,7 @@
    border-radius: 6px;
    font-size: 14px;
  }
- 
+
  /* Feedback messages */
  .feedback-message {
    margin-top: 20px;
@@ -552,4 +552,3 @@
    color: #721c24;
  }
  </style>
- 

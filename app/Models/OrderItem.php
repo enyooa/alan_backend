@@ -9,12 +9,15 @@ class OrderItem extends Model
 {
     use HasFactory;
     protected $fillable = [
-        'order_id', 
-        
+        'order_id',
+        'packer_quantity',
+        'courier_quantity',
         'product_subcard_id',
         'source_table',
         'source_table_id',
         'quantity',
+        'unit_measurement',
+        'totalsum',
         'price',
     ];
     public function productSubCard()

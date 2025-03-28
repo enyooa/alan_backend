@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class Basket extends Model
 {
     use HasFactory;
-    
+
     protected $fillable = [
         'id_client_request',
         'product_subcard_id',
@@ -16,6 +16,8 @@ class Basket extends Model
         'source_table_id',
         'quantity',
         'price',
+        'unit_measurement',  // <-- now fillable
+        'totalsum',
     ];
 
     public function productSubCard()

@@ -13,21 +13,17 @@ class CreatePriceOffersTable extends Migration
      */
     public function up()
     {
-        Schema::create('price_offers', function (Blueprint $table) {
+        Schema::create('price_offers_items', function (Blueprint $table) {
             $table->id();
-            $table->string('choice_status')->nullable();
-            
+
             $table->integer('price_offer_order_id')->nullable();
 
-            $table->integer('client_id')->nullable();
-            $table->integer('address_id')->nullable();
             $table->integer('product_subcard_id');
             $table->string('unit_measurement')->nullable();
             $table->integer('amount')->nullable();
             $table->integer('price')->nullable();
-            $table->integer('totalsum')->nullable();
-            $table->date('start_date')->nullable();// периуд действие ценового предложения
-            $table->date('end_date')->nullable(); //периуд действие ценового предложения
+
+
             $table->timestamps();
         });
     }

@@ -2,28 +2,23 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Address;
 use App\Models\AdminCashes;
-use App\Models\BasicProductsPrice;
-use App\Models\Sales;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use App\Models\PriceRequest;
-use App\Models\Product_Group;
-use App\Models\AdminWarehouse;
-use App\Models\AdminWarehouseExpense;
+use App\Models\Document;
+use App\Models\DocumentItem;
+use App\Models\DocumentType;
 use App\Models\Expense;
-use App\Models\GeneralWarehouse;
 use Illuminate\Support\Facades\Log;
-
-use App\Models\Product;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
 use App\Models\Provider;
 use App\Models\Sale;
 use App\Models\User;
-use BeyondCode\LaravelWebSockets\Server\Loggers\Logger;
+use App\Models\WarehouseItem;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -192,136 +187,425 @@ class AdminController extends Controller
     |--------------------------------------------------------------------------
     */
 
+
+
     /**
-     * Create a single warehouse entry
+     * веб версия приход товаров
      */
-    public function createWarehouse(Request $request)
-    {
-        try {
-            Log::info('Request Data:', $request->all());
+    public function storeIncome(Request $request)
+{
+    // Посмотрим, что пришло:
+    Log::info($request->all());
 
-            // Validate
-            $validated = $request->validate([
-                'organization_id' => 'nullable|integer|exists:users,id',
-                'product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
-                'unit_measurement' => 'nullable|string|max:255',
-                'quantity' => 'nullable|numeric|min:0',
-                'price' => 'nullable|numeric|min:0',
-                'total_sum' => 'nullable|numeric|min:0',
-                'date' => 'nullable|date_format:Y-m-d',
-            ]);
+    // Массив товаров
+    $products = $request->input('products', []);
+    // Массив расходов
+    $expenses = $request->input('expenses', []);
 
-            $adminWarehouse = AdminWarehouse::create($validated);
+    // ID поставщика (из фронта)
+    $providerId = $request->input('provider_id');
+    // Дата документа (из фронта)
+    $docDate = $request->input('document_date');
+    // Выбранный "Склад поступления" (заменяем прежний assigned_user_id)
+    $warehouseId = $request->input('assigned_warehouse_id'); // может быть null
 
-            return response()->json([
-                'message' => 'Product received successfully',
-                'data' => $adminWarehouse,
-            ], 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'error' => 'Validation failed',
-                'messages' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            Log::error('Error storing product receiving:', ['error' => $e->getMessage()]);
-            return response()->json([
-                'error' => 'Failed to store product receiving data',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
+    if (empty($products)) {
+        return response()->json(['success'=>false, 'error'=>'No products given'], 422);
     }
 
-    /**
-     * Bulk store warehouse entries
-     * (Keeping the HEAD version: using "products" array)
-     */
- 
-    public function receivingBulkStore(Request $request)
-    {
-        // 1) Включаем логирование всех запросов
-        DB::listen(function ($query) {
-            // Запишем SQL и привязки в лог-файл laravel.log
-            Log::debug('SQL: '.$query->sql, $query->bindings);
-        });
+    DB::beginTransaction();
+    try {
+        // Ищем запись DocumentType, где code='income'
+        $docType = DocumentType::where('code', 'income')->firstOrFail();
 
-        try {
-            Log::info('Received bulk receiving data:', $request->all());
+        // Создаём «шапку» документа
+        $doc = Document::create([
+            'document_type_id' => $docType->id,
+            'status'           => '+',           // Приход => статус "+"
+            'provider_id'      => $providerId,
+            'document_date'    => $docDate ?? now(),
+            'comments'         => $request->input('comments'),
+            // Вместо destination_user_id используем to_warehouse_id
+            'to_warehouse_id'  => $warehouseId,
+        ]);
 
-            // 2) Валидация (примерная)
-            $validated = $request->validate([
-                'products' => 'required|array',
-
-                'products.*.provider_id'        => 'integer|nullable',
-                'products.*.product_subcard_id' => 'required|integer',
-                'products.*.unit_measurement'   => 'nullable|string|max:255',
-                'products.*.quantity'           => 'nullable|numeric|min:0',
-                'products.*.brutto'             => 'nullable|numeric|min:0',
-                'products.*.netto'              => 'nullable|numeric|min:0',
-                'products.*.price'              => 'nullable|numeric|min:0',
-                'products.*.total_sum'          => 'nullable|numeric|min:0',
-                'products.*.date'               => 'nullable|date_format:Y-m-d',
-                'products.*.additional_expense' => 'nullable|numeric|min:0',
-                'products.*.cost_price'         => 'nullable|numeric|min:0',
-
-                // Если "expenses" => массив объектов { expense_id:1 }, etc.
-                'products.*.expenses' => 'array',
-                'products.*.expenses.*.expense_id' => 'integer|exists:expenses,id',
+        // Сохраняем строки (DocumentItem) — историческая запись о поступлении
+        foreach ($products as $item) {
+            DocumentItem::create([
+                'document_id'         => $doc->id,
+                'product_subcard_id'  => $item['product_subcard_id']  ?? null,
+                'unit_measurement'    => $item['unit_measurement']    ?? null,
+                'quantity'            => $item['quantity']            ?? 0,
+                'brutto'              => $item['brutto']              ?? 0,
+                'netto'               => $item['netto']               ?? 0,
+                'price'               => $item['price']               ?? 0,
+                'total_sum'           => $item['total_sum']           ?? 0,
+                'additional_expenses' => $item['additional_expenses'] ?? 0,
+                'cost_price'          => $item['cost_price']          ?? 0,
+                'net_unit_weight'     => ($item['quantity'] ?? 0) > 0
+        ? ($item['netto'] / $item['quantity'])
+        : 0,
             ]);
 
-            foreach ($validated['products'] as $pData) {
-                // 3) Создаём запись в admin_warehouses
-                $adminWarehouse = AdminWarehouse::create([
-                    'organization_id'     => $pData['provider_id'] ?? null,
-                    'product_subcard_id'  => $pData['product_subcard_id'],
-                    'unit_measurement'    => $pData['unit_measurement'] ?? null,
-                    'quantity'            => $pData['quantity'] ?? 0,
-                    'brutto'              => $pData['brutto'] ?? 0,
-                    'netto'               => $pData['netto'] ?? 0,
-                    'price'               => $pData['price'] ?? 0,
-                    'total_sum'           => $pData['total_sum'] ?? 0,
-                    'date'                => $pData['date'] ?? null,
-                    'additional_expenses' => $pData['additional_expense'] ?? 0,
-                    'cost_price'          => $pData['cost_price'] ?? 0,
+            // Теперь добавим/обновим запись(и) в WarehouseItem (текущие остатки на складе)
+            if ($warehouseId) {
+                // Находим или создаём WarehouseItem для этого склада и продукта
+                $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                    ->where('product_subcard_id', $item['product_subcard_id'] ?? null)
+                    ->where('unit_measurement', $item['unit_measurement'] ?? null)
+                    ->first();
+
+                if (!$whItem) {
+                    // Создаём новую запись
+                    $whItem = new WarehouseItem();
+                    $whItem->warehouse_id       = $warehouseId;
+                    $whItem->product_subcard_id = $item['product_subcard_id']  ?? null;
+                    $whItem->unit_measurement   = $item['unit_measurement']    ?? null;
+                    $whItem->quantity           = 0;
+                    $whItem->brutto             = 0;
+                    $whItem->netto              = 0;
+                    $whItem->total_sum          = 0;
+                }
+
+                // Логика обновления (сложение, если хотим хранить остаток)
+                $whItem->quantity            += ($item['quantity']            ?? 0);
+                $whItem->brutto             += ($item['brutto']              ?? 0);
+                $whItem->netto              += ($item['netto']               ?? 0);
+                // Текущая цена/себестоимость может быть tricky:
+                // - Можем установить последнюю,
+                // - или высчитывать среднюю,
+                // - или хранить отдельно. Для примера просто перезаписываем:
+                $whItem->price               = $item['price']               ?? 0;
+                // Аналогично для total_sum — можно суммировать:
+                $whItem->total_sum          += ($item['total_sum']           ?? 0);
+                // additional_expenses / cost_price — тоже могут потребовать средней арифметики, но тут упростим:
+                $whItem->additional_expenses = $item['additional_expenses']  ?? 0;
+                $whItem->cost_price          = $item['cost_price']           ?? 0;
+
+                $whItem->save();
+            }
+        }
+
+        // Обновляем или связываем расходы (примерно как у вас было)
+        foreach ($expenses as $exp) {
+            $existingExpense = Expense::findOrFail($exp['expense_id']);
+            $existingExpense->update([
+                'document_id' => $doc->id,   // теперь привязываем к этому документу
+                'name'        => $exp['name']   ?? 'Расход',
+                'amount'      => $exp['amount'] ?? 0,
+            ]);
+        }
+
+        DB::commit();
+        return response()->json(['success' => true, 'message' => 'Документ (Приход) сохранён'], 201);
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        return response()->json(['success' => false, 'error'=>$e->getMessage()], 500);
+    }
+}
+
+
+// мобильнаяя версия админке приход товаров
+public function storeIncomes(Request $request)
+{
+    // 1) Retrieve the entire array of “receivings” from the request
+    $receivings = $request->input('receivings', []);
+
+    // 2) If nothing is sent, throw a validation error
+    if (empty($receivings)) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'No receiving data was provided'
+        ], 422);
+    }
+
+    // 3) Wrap everything in a DB transaction so that if anything fails,
+    //    all changes will be rolled back
+    DB::beginTransaction();
+    try {
+        // Find the DocumentType record for an “income” doc
+        $docType = DocumentType::where('code', 'income')->firstOrFail();
+
+        // 4) Loop through each “receiving” item
+        foreach ($receivings as $receiving) {
+
+            // Extract data needed to create a Document
+            $providerId  = $receiving['provider_id']     ?? null;
+            $docDate     = $receiving['document_date']   ?? now();
+            $warehouseId = $receiving['warehouse_id']    ?? null;
+            $products    = $receiving['products']        ?? [];
+            $expenses    = $receiving['expenses']        ?? [];
+            $comments    = $receiving['comments']        ?? null;
+
+            // Make sure we have at least some products for this document
+            if (empty($products)) {
+                // Depending on your logic, you could skip this receiving
+                // or throw an error. Here, let’s throw an error:
+                throw new \Exception("No products specified for one of the receivings");
+            }
+
+            // 5) Create the “header” row in `documents` table
+            $doc = Document::create([
+                'document_type_id' => $docType->id,
+                'status'           => '+',  // '+' to indicate income
+                'provider_id'      => $providerId,
+                'document_date'    => $docDate,
+                'comments'         => $comments,
+                'to_warehouse_id'  => $warehouseId,
+            ]);
+
+            // 6) For each product, create a DocumentItem and update WarehouseItem
+            foreach ($products as $item) {
+                DocumentItem::create([
+                    'document_id'         => $doc->id,
+                    'product_subcard_id'  => $item['product_subcard_id']  ?? null,
+                    'unit_measurement'    => $item['unit_measurement']    ?? null,
+                    'quantity'            => $item['quantity']            ?? 0,
+                    'brutto'              => $item['brutto']              ?? 0,
+                    'netto'               => $item['netto']               ?? 0,
+                    'price'               => $item['price']               ?? 0,
+                    'total_sum'           => $item['total_sum']           ?? 0,
+                    'additional_expenses' => $item['additional_expenses'] ?? 0,
+                    'cost_price'          => $item['cost_price']          ?? 0,
+                    'net_unit_weight'     => ($item['quantity'] ?? 0) > 0
+        ? ($item['netto'] / $item['quantity'])
+        : 0,
                 ]);
 
-                // 4) Привязка расходов через pivot
-                //    Предположим, мы просто храним список expense_id
-                if (!empty($pData['expenses'])) {
-                    // Собираем массив ID
-                    $expenseIds = collect($pData['expenses'])
-                        ->pluck('expense_id')
-                        ->filter() // убрать null/0
-                        ->toArray();
+                // If warehouseId is present, update or create a WarehouseItem
+                if ($warehouseId) {
+                    $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                        ->where('product_subcard_id', $item['product_subcard_id'] ?? null)
+                        ->where('unit_measurement', $item['unit_measurement'] ?? null)
+                        ->first();
 
-                    Log::debug("Attach expense IDs for AdminWarehouse#{$adminWarehouse->id}", $expenseIds);
+                    // If no existing record found, create a new blank one
+                    if (!$whItem) {
+                        $whItem = new WarehouseItem();
+                        $whItem->warehouse_id       = $warehouseId;
+                        $whItem->product_subcard_id = $item['product_subcard_id']  ?? null;
+                        $whItem->unit_measurement   = $item['unit_measurement']    ?? null;
+                        $whItem->quantity           = 0;
+                        $whItem->brutto             = 0;
+                        $whItem->netto              = 0;
+                        $whItem->total_sum          = 0;
+                    }
 
-                    // Выполняем attach
-                    $adminWarehouse->expenses()->attach($expenseIds);
+                    // Accumulate the new quantities and sums
+                    $whItem->quantity    += ($item['quantity']  ?? 0);
+                    $whItem->brutto     += ($item['brutto']    ?? 0);
+                    $whItem->netto      += ($item['netto']     ?? 0);
+                    // Overwrite or recalculate the price as needed
+                    $whItem->price       = ($item['price']     ?? 0);
+                    // Summation for total_sum
+                    $whItem->total_sum  += ($item['total_sum'] ?? 0);
+
+                    // Optional: additional_expenses & cost_price
+                    // In practice you might want average calculations; here we just overwrite
+                    $whItem->additional_expenses = ($item['additional_expenses'] ?? 0);
+                    $whItem->cost_price          = ($item['cost_price']          ?? 0);
+
+                    $whItem->save();
                 }
             }
 
-            // 5) Ответ об успехе
-            return response()->json([
-                'message' => 'Bulk product receiving with pivot expenses successfully stored!',
-            ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'error' => 'Validation failed',
-                'messages' => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            Log::error('Error saving product receiving:', ['error' => $e->getMessage()]);
-            return response()->json([
-                'error'   => 'Failed to store product receiving data',
-                'message' => $e->getMessage(),
-            ], 500);
+            // 7) Handle expenses
+            //    Example approach (create new expense entries):
+            foreach ($expenses as $exp) {
+                // If your front provides an 'expense_id', you could do findOrFail($exp['expense_id']) here
+                // but in your sample data we have only name and amount. So we just create a new record.
+                Expense::create([
+                    'document_id' => $doc->id,
+                    'name'        => $exp['name']   ?? 'Расход',
+                    'amount'      => $exp['amount'] ?? 0,
+                ]);
+            }
         }
+
+        // 8) If we reach here without errors, commit the transaction
+        DB::commit();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'All receiving documents stored successfully'
+        ], 201);
+
+    } catch (\Throwable $e) {
+        // 9) Roll everything back if something fails
+        DB::rollBack();
+        return response()->json([
+            'success' => false,
+            'error'   => $e->getMessage()
+        ], 500);
+    }
+}
+
+
+// мобильная версия админке списание товаров
+public function storeWriteOff(Request $request)
+{
+    // Массив "write_offs" (каждый элемент = один документ)
+    $writeOffs = $request->input('write_offs', []);
+    if (empty($writeOffs)) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'No write_offs array provided'
+        ], 422);
     }
 
+    DB::beginTransaction();
+    try {
+        // 1) Ищем тип документа "write_off" (достаточно один раз)
+        $docType = DocumentType::where('code', 'write_off')->firstOrFail();
 
-    
+        // Будем хранить ID созданных документов, чтобы вернуть их все разом
+        $createdDocIds = [];
 
+        // 2) Перебираем каждую «порцию» списания (каждый элемент массива write_offs)
+        foreach ($writeOffs as $wo) {
+            // Валидируем данные внутри каждого "wo"
+            $validator = Validator::make($wo, [
+                'warehouse_id'  => 'required|integer',
+                'document_date' => 'required|date',
+                'items'         => 'required|array|min:1',
+            ]);
+
+            if ($validator->fails()) {
+                throw new \Exception(
+                    "Validation error: "
+                    . json_encode($validator->errors(), JSON_UNESCAPED_UNICODE)
+                );
+            }
+
+            $validated = $validator->validated();
+
+            $warehouseId = $validated['warehouse_id'];
+            $docDate     = $validated['document_date'];
+            $items       = $validated['items'];
+
+            // 3) Создаём документ "Списание"
+            $doc = Document::create([
+                'document_type_id'  => $docType->id,
+                'status'            => '-',        // признак "убыло со склада"
+                'from_warehouse_id' => $warehouseId,
+                'to_warehouse_id'   => 0,          // или null
+                'document_date'     => $docDate,
+                'comments'          => "Списание со склада #$warehouseId",
+            ]);
+
+            // В этот массив соберём строки для DocumentItems, чтобы потом одним циклом добавить
+            $writtenOffItems = [];
+
+            // 4) Для каждой строки списываем товар со склада
+            foreach ($items as $row) {
+                $prodId   = $row['product_subcard_id'];
+                $qty      = $row['quantity']         ?? 0;
+                $uMeasure = $row['unit_measurement'] ?? '';
+
+                // Находим позицию на складе
+                $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                    ->where('product_subcard_id', $prodId)
+                    ->where('unit_measurement', $uMeasure)
+                    ->first();
+
+                // Проверяем, достаточно ли остатков
+                if (!$whItem) {
+                    throw new \Exception(
+                        "Склад #$warehouseId не имеет товара product_subcard_id=$prodId (ед. изм '$uMeasure')"
+                    );
+                }
+                if ($whItem->quantity < $qty) {
+                    throw new \Exception(
+                        "Недостаточно товара (ID=$prodId) на складе $warehouseId "
+                        ."(требуется $qty, есть {$whItem->quantity})."
+                    );
+                }
+
+                // Старые значения (до списания)
+                $oldQty    = $whItem->quantity;
+                $oldBrutto = $whItem->brutto;
+                $oldNetto  = $whItem->netto;
+                $oldPrice  = $whItem->price;
+                $oldSum    = $whItem->total_sum;
+                $oldCost   = $whItem->cost_price;
+                $oldAddExp = $whItem->additional_expenses;
+
+                // Определяем пропорцию (сколько % списываем)
+                $ratio = $oldQty > 0 ? ($qty / $oldQty) : 0;
+
+                // Сколько "ушло" (брютто, нетто, сумма, расходы)
+                $woBrutto = round($oldBrutto * $ratio, 2);
+                $woNetto  = round($oldNetto  * $ratio, 2);
+                $woSum    = round($oldSum    * $ratio, 2);
+                $woAddExp = round($oldAddExp * $ratio, 2);
+
+                // Обновляем остаток
+                $whItem->quantity -= $qty;
+                if ($whItem->quantity > 0) {
+                    // Новый ratio для остатка
+                    $newRatio = $whItem->quantity / $oldQty;
+
+                    $whItem->brutto             = round($oldBrutto * $newRatio, 2);
+                    $whItem->netto              = round($oldNetto  * $newRatio, 2);
+                    $whItem->total_sum          = round($oldSum    * $newRatio, 2);
+                    $whItem->additional_expenses= round($oldAddExp * $newRatio, 2);
+                } else {
+                    // Полный ноль
+                    $whItem->quantity = 0;
+                    $whItem->brutto   = 0;
+                    $whItem->netto    = 0;
+                    $whItem->total_sum= 0;
+                    $whItem->additional_expenses= 0;
+                }
+                $whItem->save();
+
+                // (необязательно) net_unit_weight для списанной части:
+                $netUnitWeight = ($qty > 0)
+                    ? round($woNetto / $qty, 4)
+                    : 0;
+
+                // Сохраняем информацию о "списанной части" (самом факте списания)
+                $writtenOffItems[] = [
+                    'product_subcard_id'  => $prodId,
+                    'unit_measurement'    => $uMeasure,
+                    'quantity'            => $qty,       // СКОЛЬКО списали
+                    'brutto'              => $woBrutto,
+                    'netto'               => $woNetto,
+                    'price'               => $oldPrice,
+                    'total_sum'           => $woSum,
+                    'additional_expenses' => $woAddExp,
+                    'cost_price'          => $oldCost,
+                    'net_unit_weight'     => $netUnitWeight, // если нужно
+                ];
+            }
+
+            // 5) Создаём строки DocumentItem
+            foreach ($writtenOffItems as $wi) {
+                DocumentItem::create(array_merge($wi, [
+                    'document_id' => $doc->id,
+                ]));
+            }
+
+            // Запоминаем созданный doc.id
+            $createdDocIds[] = $doc->id;
+        }
+
+        DB::commit();
+        return response()->json([
+            'success'      => true,
+            'message'      => 'Списание(я) успешно выполнено!',
+            'document_ids' => $createdDocIds,
+        ], 201);
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        return response()->json([
+            'success' => false,
+            'error'   => $e->getMessage(),
+        ], 500);
+    }
+}
 
 
 
@@ -404,23 +688,7 @@ class AdminController extends Controller
             )
             ->get();
 
-        $sales = DB::table('sales')
-            ->select(
-                'id',
-                DB::raw('CAST(amount AS CHAR) as operation'),
-                'created_at',
-                DB::raw("'Продажа' as type")
-            )
-            ->get();
 
-        $priceRequests = DB::table('price_requests')
-            ->select(
-                'id',
-                DB::raw('CAST(amount AS CHAR) as operation'),
-                'created_at',
-                DB::raw("'Ценовое предложение' as type")
-            )
-            ->get();
 
         $unitMeasurements = DB::table('unit_measurements')
             ->select(
@@ -449,14 +717,6 @@ class AdminController extends Controller
             )
             ->get();
 
-        $adminWarehouses = DB::table('admin_warehouses')
-            ->select(
-                'id',
-                DB::raw('CAST(quantity AS CHAR) as operation'),
-                'created_at',
-                DB::raw("'Перемещение в склад' as type")
-            )
-            ->get();
 
         $providers = DB::table('providers')
             ->select(
@@ -466,17 +726,24 @@ class AdminController extends Controller
                 DB::raw("'Поставщик' as type")
             )
             ->get();
+        $expenses = DB::table('expenses')
+        ->select(
+            'id',
+            DB::raw('CAST(name AS CHAR) as operation'),
+            'created_at',
+            DB::raw("'Расход' as type")  // Or "expense" in Russian
+        )
+        ->get();
 
         // Combine and sort operations by creation date
         $operations = $productCards
             ->concat($productSubcards)
-            ->concat($sales)
-            ->concat($priceRequests)
             ->concat($unitMeasurements)
             ->concat($roles)
             ->concat($addresses)
-            ->concat($adminWarehouses)
             ->concat($providers)
+            ->concat($expenses)
+
             ->sortByDesc('created_at')
             ->values();
 
@@ -584,5 +851,9 @@ class AdminController extends Controller
         $adminCashes = AdminCashes::all(['id', 'name', 'IBAN']);
         return response()->json($adminCashes, 200);
     }
+
+
+
+
 }
 

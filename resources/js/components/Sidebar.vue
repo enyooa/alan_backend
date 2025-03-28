@@ -31,7 +31,7 @@ export default {
         // { label: "Контрагенты", to: "/clients", icon: "pi-users" },
         { label: "Справочник", to: "/product-cards", icon: "pi-box" },
         { label: "Товары", to: "/receive", icon: "pi-shopping-cart" },
-        { label: "История операции", to: "/operation-history", icon: "pi-file" },
+        // { label: "История операции", to: "/operation-history", icon: "pi-file" },
         //{ label: "Аккаунты", to: "/accounts", icon: "pi-id-card" },
         { label: "Отчеты", to: "/reports", icon: "pi-chart-line" },
         // { label: "Отчет по задолженности", to: "/client-debts", icon: "pi-money-bill" },

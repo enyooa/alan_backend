@@ -10,12 +10,11 @@ class Order extends Model
     use HasFactory;
     protected $fillable = [
         'user_id',
-        'status',
+        'status_id',
         'address',
         'packer_id',
         'courier_id',
-        'packer_document_id',
-        'courier_document_id',
+
     ];
     public function packer()
 {
@@ -38,4 +37,9 @@ public function client()
 {
     return $this->belongsTo(User::class, 'user_id');
 }
+public function statusDoc()
+{
+    return $this->belongsTo(StatusDoc::class, 'status_id');
+}
+
 }

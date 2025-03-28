@@ -20,7 +20,9 @@ class CreateBasketsTable extends Migration
             $table->date('delivery_date')->nullable();
             $table->integer('product_subcard_id');
             $table->string('source_table')->nullable();
+            $table->string('unit_measurement')->nullable()->after('price');
 
+            $table->decimal('totalsum', 15, 2)->default(0)->after('unit_measurement');
             $table->integer('quantity')->default(1); // Quantity of the product
 
             $table->timestamps();

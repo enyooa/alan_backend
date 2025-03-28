@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Role;
+use App\Models\Warehouse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
@@ -15,11 +16,12 @@ class UserController extends Controller
     // Get all users (only accessible by admin)
     public function index()
 {
-    $users = User::with('roles')
-        ->whereDoesntHave('roles', function ($query) {
-            $query->where('name', 'admin');
-        })
-        ->get();
+    // $users = User::with('roles')
+    //     ->whereDoesntHave('roles', function ($query) {
+    //         $query->where('name', 'admin');
+    //     })
+    //     ->get();
+    $users = User::with('roles')->get();
 
     return response()->json($users);
 }
@@ -57,47 +59,74 @@ public function removeRole(Request $request, User $user)
 
     return response()->json(['message' => 'Role removed successfully']);
 }
-// удалить роль 
+// удалить роль
 
     // Store a new user (create employee)
     public function storeUser(Request $request)
-    {
-        Log::info($request->all());
-        $validator = Validator::make($request->all(), [
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'nullable|string|max:255',
-            'surname' => 'nullable|string|max:255',
-            'whatsapp_number' => 'required|string|unique:users|max:15',
-            'role' => 'required|string', // Allowed roles
-            'password' => 'required|string|min:6',
-        ]);
+{
+    $validated = $request->validate([
+        'first_name' => 'required|string',
+        'whatsapp_number' => 'required|unique:users',
+        'role'       => 'required|string',
+        'password'   => 'required|string|min:6',
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+        // Опционально, если нужно:
+        'warehouse_name'        => 'nullable|string',
+        'existing_warehouse_id' => 'nullable|integer|exists:warehouses,id'
+    ]);
+
+    // 1. Создаём пользователя
+    $user = User::create([
+        'first_name'      => $validated['first_name'],
+        'last_name'       => $request->last_name,
+        'surname'         => $request->surname,
+        'whatsapp_number' => $validated['whatsapp_number'],
+        'password'        => Hash::make($validated['password']),
+    ]);
+
+    // 2. Присваиваем роль
+    $role = Role::where('name', $validated['role'])->first();
+    $user->roles()->attach($role);
+
+    // 3. Если пользователь – Кладовщик (storager)
+    if ($validated['role'] === 'storager') {
+        // Если создаём новый склад
+        if (!empty($validated['warehouse_name'])) {
+            Warehouse::create([
+                'name'       => $validated['warehouse_name'],
+                'manager_id' => $user->id,
+            ]);
         }
-
-        // Create the user
-        $user = User::create([
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'surname' => $request->surname,
-            'whatsapp_number' => $request->whatsapp_number,
-            'password' => Hash::make($request->password),
-        ]);
-
-        // Find the role and attach it
-        $role = Role::where('name', $request->role)->first();
-        if ($role) {
-            $user->roles()->attach($role->id);
-        } else {
-            return response()->json(['error' => 'Invalid role'], 400);
+        // Или назначаем на существующий
+        elseif (!empty($validated['existing_warehouse_id'])) {
+            $wh = Warehouse::find($validated['existing_warehouse_id']);
+            $wh->manager_id = $user->id;
+            $wh->save();
         }
-
-        return response()->json([
-            'message' => 'User created successfully',
-            'user' => $user->load('roles') // Load roles in response
-        ], 201);
     }
+    // 4) Упаковщик (packer) -> packer_id
+    elseif ($validated['role'] === 'packer' && !empty($validated['existing_warehouse_id'])) {
+        $wh = Warehouse::find($validated['existing_warehouse_id']);
+        // Вместо pivot, просто записываем packer_id
+        $wh->packer_id = $user->id;
+        $wh->save();
+    }
+    // 5) Курьер (courier) -> courier_id
+    elseif ($validated['role'] === 'courier' && !empty($validated['existing_warehouse_id'])) {
+        $wh = Warehouse::find($validated['existing_warehouse_id']);
+        // Вместо pivot, просто записываем courier_id
+        $wh->courier_id = $user->id;
+        $wh->save();
+    }
+
+    return response()->json([
+        'message' => 'User created successfully',
+        'user'    => $user->load('roles')
+    ]);
+}
+
+
+
 
     // Update user details
     public function update(Request $request, User $user)
@@ -130,7 +159,7 @@ public function removeRole(Request $request, User $user)
     public function toggleNotifications(Request $request)
     {
         $user = Auth::user();
-        
+
         // Ensure request contains 'notifications' field
         if ($request->has('notifications')) {
             $user->notifications = $request->notifications;
@@ -139,5 +168,20 @@ public function removeRole(Request $request, User $user)
         }
 
         return response()->json(['error' => 'Invalid request'], 400);
+    }
+
+
+    public function getAdminsAndStoragers()
+    {
+        // Предположим, role_id=1 => admin, role_id=5 => storager
+        // Или вы ориентируетесь на названия ролей (name='admin'/'storager') – смотрите свою базу.
+
+        // 1) Если в pivot хранится role_id = 1 (admin) или 5 (storager), то:
+        $users = User::whereHas('roles', function($q) {
+            $q->whereIn('role_id', [1, 5]);  // Если в pivot таблице role_user => role_id
+        })->get();
+
+        // 2) Возвращаем JSON
+        return response()->json($users, 200);
     }
 }

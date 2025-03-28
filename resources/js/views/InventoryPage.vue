@@ -1,462 +1,422 @@
 <template>
-  <div class="price-offer-container">
+  <div class="transfer-page-container">
     <h2 class="page-title">Перемещение</h2>
 
-    <!-- Card for Storager, Address & Date -->
+    <!-- Карточка: "Из склада" / "В склад" / "Дата" -->
     <div class="card">
       <div class="card-header">
-        <h3>Складовщик, Адрес и Дата</h3>
+        <h3>Из какого склада, в какой склад и дата</h3>
       </div>
       <div class="card-body">
         <div class="top-row">
-          <!-- Storager Dropdown -->
+          <!-- Из склада (source) -->
           <div class="dropdown-column">
-            <label class="dropdown-label">Складовщик</label>
-            <select v-model="selectedStorager" class="dropdown-select">
-              <option value="">— Выберите складовщика —</option>
+            <label class="dropdown-label">Из склада:</label>
+            <select
+              v-model="selectedSourceWarehouse"
+              class="dropdown-select"
+              @change="onSourceWarehouseChange"
+            >
+              <option value="">— выберите склад —</option>
               <option
-                v-for="storager in storageUsers"
-                :key="storager.user_id"
-                :value="storager.user_id.toString()"
+                v-for="wh in warehouses"
+                :key="wh.id"
+                :value="wh.id"
               >
-                {{ storager.user_name }}
+                {{ wh.name }}
               </option>
             </select>
           </div>
 
-          <!-- Address Dropdown -->
+          <!-- В склад (destination) -->
           <div class="dropdown-column">
-            <label class="dropdown-label">Адрес</label>
-            <select v-model="selectedAddress" class="dropdown-select">
-              <option value="">— Выберите адрес —</option>
+            <label class="dropdown-label">В склад:</label>
+            <select 
+              v-model="selectedDestinationWarehouse" 
+              class="dropdown-select"
+            >
+              <option value="">— выберите склад —</option>
               <option
-                v-for="addr in getAddressesForStorager(selectedStorager)"
-                :key="addr.id"
-                :value="addr"
+                v-for="wh in warehouses"
+                :key="wh.id"
+                :value="wh.id"
               >
-                {{ addr.name }}
+                {{ wh.name }}
               </option>
             </select>
           </div>
 
-          <!-- Single Date Picker -->
+          <!-- Дата -->
           <div class="dropdown-column">
-            <label class="dropdown-label">Дата</label>
-            <input type="date" v-model="selectedDate" class="dropdown-select" />
+            <label class="dropdown-label">Дата:</label>
+            <input
+              type="date"
+              v-model="selectedDate"
+              class="dropdown-select"
+            />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Cards Container for Products and Cost Prices -->
+    <!-- Две части: слева таблица формирования перемещения, справа - остатки -->
     <div class="cards-container mt-3">
-      <!-- Card for Product Table -->
-      <div class="card product-card">
-        <div class="card-header">
-          <h3>Товары</h3>
+      <!-- Левая карточка: формируем строки для перемещения -->
+      <div class="card card-transfer">
+        <div class="card-header flex-between">
+          <h3>Товары для Перемещения</h3>
+          <button class="action-btn" @click="addProductRow">
+            ➕ Добавить строку
+          </button>
         </div>
         <div class="card-body">
-          <div v-if="loadingProductSubcards || loadingUnits" class="loading-indicator">
-            <p>Загрузка...</p>
-          </div>
-          <div v-else-if="productSubcardsError || unitsError" class="error-message">
-            <p>{{ productSubcardsError || unitsError }}</p>
-          </div>
-          <div v-else>
-            <table class="styled-table">
-              <thead>
-                <tr>
-                  <th>Подкарточка</th>
-                  <th>Партия</th>
-                  <th>Остаток (ед. изм.)</th>
-                  <th>Ед. изм.</th>
-                  <th>Кол-во</th>
-                  <th>Цена</th>
-                  <th>Удалить</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, index) in productRows" :key="index">
-                  <!-- Product Subcard Dropdown -->
-                  <td>
-                    <select
-                      v-model="row.product_subcard_id"
-                      class="table-select"
-                      @change="onSubcardChange(row)"
-                    >
-                      <option value="">—</option>
-                      <option
-                        v-for="subcard in productSubcards"
-                        :key="subcard.id"
-                        :value="subcard.id"
-                      >
-                        {{ subcard.name }}
-                      </option>
-                    </select>
-                  </td>
-                  <!-- Batch Dropdown -->
-                  <td>
-                    <select
-                      v-if="row.product_subcard_id && getBatchesForSubcard(row.product_subcard_id).length"
-                      v-model="row.selectedBatchId"
-                      class="table-select"
-                    >
-                      <option value="">— Выберите партию —</option>
-                      <option
-                        v-for="batch in getBatchesForSubcard(row.product_subcard_id)"
-                        :key="batch.id"
-                        :value="batch.id"
-                      >
-                        {{ batch.quantity }} {{ batch.unit_measurement }} (Себестоимость: {{ batch.cost_price || batch.price }})
-                      </option>
-                    </select>
-                    <span v-else>-</span>
-                  </td>
-                  <!-- Remaining Quantity -->
-                  <td>
-                    <span v-if="row.selectedBatchId">
-                      {{ getBatchById(row.selectedBatchId)?.quantity }}
-                    </span>
-                    <span v-else-if="row.product_subcard_id">
-                      {{ findSubcard(row.product_subcard_id)?.total_quantity || 0 }}
-                    </span>
-                    <span v-else>-</span>
-                  </td>
-                  <!-- Unit Measurement -->
-                  <td>
-                    <select v-model="row.unit_measurement" class="table-select">
-                      <option value="">—</option>
-                      <option
-                        v-for="unit in units"
-                        :key="unit.id"
-                        :value="unit.name"
-                      >
-                        {{ unit.name }}
-                      </option>
-                    </select>
-                  </td>
-                  <!-- Amount -->
-                  <td>
-                    <input
-                      type="number"
-                      class="table-input"
-                      v-model.number="row.amount"
-                      @change="validateAmount(row)"
-                    />
-                  </td>
-                  <!-- Price -->
-                  <td>
-                    <input
-                      type="number"
-                      class="table-input"
-                      v-model.number="row.price"
-                    />
-                  </td>
-                  <!-- Delete Button -->
-                  <td>
-                    <button class="remove-btn" @click="removeProductRow(index)">
-                      ❌
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <!-- Add Row Button -->
-            <div class="mt-2">
-              <button class="action-btn" @click="addProductRow">
-                ➕ Добавить строку
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card for Cost Prices -->
-      <div class="card cost-price-card">
-        <div class="card-header">
-          <h3>Стоимость товаров</h3>
-        </div>
-        <div class="card-body">
-          <table class="cost-table">
+          <table class="styled-table">
             <thead>
               <tr>
-                <th>Подкарточка</th>
-                <th>Стоимость</th>
+                <th>Товар (ост.)</th>
+                <th>Кол-во</th>
+                <th>Ед. изм</th>
+                <th>Удалить</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="sub in productSubcards" :key="sub.id">
-                <td>{{ sub.name }}</td>
+              <tr
+                v-for="(row, idx) in productRows"
+                :key="row._key"
+              >
+                <!-- Dropdown товаров (с остатков) -->
                 <td>
-                  <div v-if="sub.batches && sub.batches.length">
-                    <div v-for="batch in sub.batches" :key="batch.id">
-                      {{ batch.cost_price !== null ? batch.cost_price : (batch.price ? batch.price : '-') }}
-                      <span v-if="batch.date"> ({{ batch.date }})</span>
-                    </div>
-                  </div>
-                  <div v-else>
-                    {{ sub.cost_price !== null ? sub.cost_price : '-' }}
-                  </div>
+                  <select
+                    v-model="row.product_subcard_id"
+                    class="table-select"
+                    @change="onProductChange(row)"
+                  >
+                    <option disabled value="">
+                      — Товар —
+                    </option>
+                    <option
+                      v-for="left in leftovers"
+                      :key="left.product_subcard_id"
+                      :value="left.product_subcard_id"
+                    >
+                      {{ left.name }} ({{ formatNumber(left.balance) }})
+                    </option>
+                  </select>
                 </td>
+
+                <!-- Кол-во -->
+                <td>
+                  <input
+                    type="number"
+                    class="table-input"
+                    v-model.number="row.quantity"
+                    @change="onQuantityChange(row)"
+                  />
+                </td>
+
+                <!-- unit_measurement -->
+                <td>
+                  <select
+                    v-model="row.unit_measurement"
+                    class="table-select"
+                  >
+                    <option disabled value="">—</option>
+                    <option
+                      v-for="u in units"
+                      :key="u.id"
+                      :value="u.name"
+                    >
+                      {{ u.name }}
+                    </option>
+                  </select>
+                </td>
+
+                <!-- remove btn -->
+                <td>
+                  <button class="remove-btn" @click="removeProductRow(idx)">
+                    ❌
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Save Button & Message -->
+        <div class="mt-2">
+          <button class="action-btn save-btn" @click="saveTransfer">
+            Сохранить перемещение
+          </button>
+        </div>
+        <div v-if="message" :class="['feedback-message', messageType]">
+          {{ message }}
+        </div>
+      </div>
+
+      <!-- Правая карточка: справочные остатки (источник) -->
+      <div class="card card-leftovers">
+        <div class="card-header">
+          <h3>Остатки на складе "{{ sourceWarehouseName }}"</h3>
+        </div>
+        <div class="card-body">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th>Остаток</th>
+                <th>Ед. изм</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="left in leftovers" :key="left.product_subcard_id">
+                <td>{{ left.name }}</td>
+                <!-- Use formatNumber here too -->
+                <td>{{ formatNumber(left.balance) }}</td>
+                <td>{{ left.unit_measurement || '—' }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-    </div>
-
-    <!-- Submit Button and Global Message -->
-    <div class="mt-3">
-      <button class="action-btn save-btn" @click="submitGeneralWarehouse">
-        Сохранить
-      </button>
-    </div>
-    <div v-if="globalMessage" :class="['feedback-message', globalMessageType]">
-      {{ globalMessage }}
-    </div>
+    </div><!-- cards-container -->
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import axios from "axios";
 
 export default {
-  name: "GeneralWarehousePage",
+  name: "TransferPage",
   setup() {
-    // Data for Storager, Address and Date
-    const selectedStorager = ref("");
-    const selectedAddress = ref(null);
-    const selectedDate = ref("");
-
-    // Instead of clientList, we have storageUsers
-    const storageUsers = ref([]);
-    const productSubcards = ref([]);
+    // Warehouses
+    const warehouses = ref([]);
+    // Leftover items in the source warehouse
+    const leftovers = ref([]);
+    // Unit measurements
     const units = ref([]);
 
-    // Loading states & errors
-    const loadingProductSubcards = ref(false);
-    const loadingUnits = ref(false);
-    const productSubcardsError = ref("");
-    const unitsError = ref("");
+    // Selected from & to warehouse IDs + date
+    const selectedSourceWarehouse = ref("");
+    const selectedDestinationWarehouse = ref("");
+    const selectedDate = ref("");
 
-    // Product rows in the table
-    const productRows = ref([]);
+    // Product rows to transfer
+    const productRows = ref([
+      {
+        _key: Date.now(),
+        product_subcard_id: "",
+        quantity: 0,
+        unit_measurement: "",
+      }
+    ]);
 
-    // Global messages
-    const globalMessage = ref("");
-    const globalMessageType = ref("");
+    // Feedback
+    const message = ref("");
+    const messageType = ref("");
 
-    onMounted(async () => {
-      await fetchStorageUsersAndAddresses();
-      await fetchProductSubcards();
-      await fetchUnits();
+    // Format function to strip trailing zeros (10.000 -> 10, etc.)
+    function formatNumber(value) {
+      if (value === null || value === undefined) return "";
+      const num = Number(value);
+      if (Number.isNaN(num)) return value; // if not a valid number, return as-is
+
+      // If it's effectively an integer, no decimals:
+      if (Number.isInteger(num)) {
+        return num.toString();
+      }
+      // Otherwise, show up to 3 decimals (customize if you like)
+      return num.toFixed(3);
+    }
+
+    // Computed: show the name of the source warehouse
+    const sourceWarehouseName = computed(() => {
+      if (!selectedSourceWarehouse.value) return "—";
+      const found = warehouses.value.find(w => w.id == selectedSourceWarehouse.value);
+      if (!found) return "???";
+      return found.name;
     });
 
-    const fetchStorageUsersAndAddresses = async () => {
-      try {
-        const { data: response } = await axios.get("/api/getStorageUserAddresses");
-        if (response.success) {
-          storageUsers.value = response.data;
-        }
-      } catch (err) {
-        console.error("Error fetching storage users & addresses:", err);
-      }
-    };
+    onMounted(() => {
+      fetchWarehouses();
+      fetchUnits();
+    });
 
-    const fetchProductSubcards = async () => {
-      loadingProductSubcards.value = true;
+    async function fetchWarehouses() {
       try {
-        const { data } = await axios.get("/api/product_subcards");
-        productSubcards.value = data;
-      } catch (err) {
-        productSubcardsError.value = "Ошибка загрузки подкарточек.";
-      } finally {
-        loadingProductSubcards.value = false;
+        const resp = await axios.get("/api/getWarehouses");
+        warehouses.value = resp.data;
+      } catch (error) {
+        console.error("Error fetching warehouses:", error);
       }
-    };
-
-    const fetchUnits = async () => {
-      loadingUnits.value = true;
+    }
+    async function fetchUnits() {
       try {
-        const { data } = await axios.get("/api/unit-measurements");
-        units.value = data;
-      } catch (err) {
-        unitsError.value = "Ошибка загрузки единиц измерения.";
-      } finally {
-        loadingUnits.value = false;
+        const resp = await axios.get("/api/unit-measurements");
+        units.value = resp.data;
+      } catch (error) {
+        console.error("Error fetching units:", error);
       }
-    };
+    }
 
-    const addProductRow = () => {
+    // When user picks a source warehouse, load that warehouse's leftover stock
+    async function onSourceWarehouseChange() {
+      if (!selectedSourceWarehouse.value) {
+        leftovers.value = [];
+        return;
+      }
+      try {
+        // Example: /api/warehouse-items?warehouse_id=XXX
+        const resp = await axios.get("/api/warehouse-items", {
+          params: { warehouse_id: selectedSourceWarehouse.value }
+        });
+        leftovers.value = resp.data;
+      } catch (error) {
+        console.error("Error fetching leftover items:", error);
+      }
+    }
+
+    function addProductRow() {
       productRows.value.push({
+        _key: Date.now() + Math.random(),
         product_subcard_id: "",
+        quantity: 0,
         unit_measurement: "",
-        amount: 0,
-        price: 0,
-        selectedBatchId: "",
       });
-    };
-
-    const removeProductRow = (idx) => {
+    }
+    function removeProductRow(idx) {
       productRows.value.splice(idx, 1);
-    };
+    }
 
-    const findSubcard = (id) => {
-      return productSubcards.value.find((sub) => sub.id === id) || null;
-    };
+    // If user changes product, reset quantity & unit
+    function onProductChange(row) {
+      row.quantity = 0;
+      row.unit_measurement = "";
+    }
 
-    const getBatchesForSubcard = (subcardId) => {
-      const subcard = findSubcard(subcardId);
-      return subcard && subcard.batches ? subcard.batches : [];
-    };
-
-    const getBatchById = (batchId) => {
-      for (const sub of productSubcards.value) {
-        if (sub.batches) {
-          const found = sub.batches.find((batch) => batch.id === batchId);
-          if (found) return found;
-        }
+    // Don’t allow quantity > leftover
+    function onQuantityChange(row) {
+      const maxQty = getBalance(row.product_subcard_id);
+      if (row.quantity > maxQty) {
+        alert(`Нельзя переместить больше, чем ${maxQty}.`);
+        row.quantity = maxQty;
       }
-      return null;
-    };
+    }
 
-    const onSubcardChange = (row) => {
-      row.selectedBatchId = "";
-      row.amount = 0;
-    };
+    function getBalance(product_subcard_id) {
+      const item = leftovers.value.find(l => l.product_subcard_id === product_subcard_id);
+      return item ? item.balance : 0;
+    }
 
-    const validateAmount = (row) => {
-      if (row.selectedBatchId) {
-        const batch = getBatchById(row.selectedBatchId);
-        if (batch && row.amount > batch.quantity) {
-          alert(`Количество для выбранной партии не может превышать ${batch.quantity}.`);
-          row.amount = batch.quantity;
-        }
-      } else {
-        const sub = findSubcard(row.product_subcard_id);
-        if (sub && row.amount > (sub.total_quantity || 0)) {
-          alert(`Количество для "${sub.name}" не может превышать общий остаток (${sub.total_quantity || 0}).`);
-          row.amount = sub.total_quantity || 0;
-        }
+    // Save the transfer
+    async function saveTransfer() {
+      if (!selectedSourceWarehouse.value) {
+        alert("Укажите склад 'из которого' отправляем");
+        return;
       }
-    };
-
-    const getAddressesForStorager = (storagerId) => {
-      if (!storagerId) return [];
-      const storager = storageUsers.value.find((s) => s.user_id.toString() === storagerId.toString());
-      return storager ? storager.addresses : [];
-    };
-
-    const submitGeneralWarehouse = async () => {
-      if (!selectedStorager || !selectedAddress || !selectedDate || productRows.value.length === 0) {
-        alert("Заполните все поля (складовщик, адрес, дату и товары)!");
+      if (!selectedDestinationWarehouse.value) {
+        alert("Укажите склад 'в который' отправляем");
+        return;
+      }
+      if (selectedSourceWarehouse.value == selectedDestinationWarehouse.value) {
+        alert("Нельзя перемещать между одним и тем же складом!");
+        return;
+      }
+      if (!selectedDate.value) {
+        alert("Укажите дату");
+        return;
+      }
+      if (!productRows.value.length) {
+        alert("Нет ни одной строки товара для перемещения");
         return;
       }
 
-      let totalSum = 0;
-      productRows.value.forEach((row) => {
-        totalSum += (row.amount || 0) * (row.price || 0);
-      });
-
-      // Map product rows into the payload format
-      const rows = productRows.value.map((row) => {
-        const payload = {
-          product_subcard_id: row.product_subcard_id,
-          unit_measurement: row.unit_measurement,
-          amount: row.amount,
-          price: row.price,
-          address_id: selectedAddress.id,
-        };
-        if (row.selectedBatchId) {
-          payload.batch_id = row.selectedBatchId;
-        }
-        return payload;
-      });
-
-      const payload = {
-        storager_id: selectedStorager,
-        address_id: selectedAddress,
-        date: selectedDate,
-        totalsum: totalSum,
-        price_offers: rows,
-      };
+      const products = productRows.value.map(r => ({
+        product_subcard_id: r.product_subcard_id,
+        quantity: r.quantity,
+        unit_measurement: r.unit_measurement,
+      }));
 
       try {
-        await axios.post("/api/sendToGeneralWarehouse", payload, {
-          headers: { "Content-Type": "application/json" },
+        await axios.post("/api/transfer/store", {
+          source_warehouse_id: selectedSourceWarehouse.value,
+          destination_warehouse_id: selectedDestinationWarehouse.value,
+          document_date: selectedDate.value,
+          products,
         });
-        globalMessage.value = `Перемещение сохранено! Итоговая сумма = ${totalSum.toFixed(2)}`;
-        globalMessageType.value = "success";
-        // Reset form
-        selectedStorager.value = "";
-        selectedAddress.value = null;
+
+        message.value = "Перемещение успешно сохранено!";
+        messageType.value = "success";
+
+        // Reset
+        selectedSourceWarehouse.value = "";
+        selectedDestinationWarehouse.value = "";
         selectedDate.value = "";
-        productRows.value = [];
+        productRows.value = [
+          {
+            _key: Date.now(),
+            product_subcard_id: "",
+            quantity: 0,
+            unit_measurement: "",
+          }
+        ];
+        leftovers.value = [];
       } catch (err) {
-        globalMessage.value = "Ошибка при сохранении перемещения.";
-        globalMessageType.value = "error";
+        console.error("Ошибка при сохранении перемещения:", err);
+        message.value = "Ошибка при сохранении перемещения.";
+        messageType.value = "error";
       }
-    };
+    }
 
     return {
-      selectedStorager,
-      selectedAddress,
-      selectedDate,
-      storageUsers,
-      productSubcards,
+      // Reactive refs
+      warehouses,
+      leftovers,
       units,
-      loadingProductSubcards,
-      loadingUnits,
-      productSubcardsError,
-      unitsError,
+      selectedSourceWarehouse,
+      selectedDestinationWarehouse,
+      selectedDate,
       productRows,
-      globalMessage,
-      globalMessageType,
-      getAddressesForStorager,
-      findSubcard,
-      getBatchesForSubcard,
-      getBatchById,
-      onSubcardChange,
-      validateAmount,
+      message,
+      messageType,
+
+      // Computed
+      sourceWarehouseName,
+
+      // Methods / functions
+      fetchWarehouses,
+      fetchUnits,
+      onSourceWarehouseChange,
       addProductRow,
       removeProductRow,
-      submitGeneralWarehouse,
+      onProductChange,
+      onQuantityChange,
+      getBalance,
+      saveTransfer,
+      formatNumber, // make sure to return so we can use in template
     };
   },
 };
 </script>
 
 <style scoped>
-.price-offer-container {
-  max-width: 1100px;
+.transfer-page-container {
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
 .page-title {
   text-align: center;
-  color: #0288d1;
   margin-bottom: 20px;
-}
-
-/* Cards Container for Side-by-Side Layout */
-.cards-container {
-  display: flex;
-  gap: 20px;
-}
-.product-card {
-  flex: 2;
-}
-.cost-price-card {
-  flex: 1;
+  font-size: 1.4rem;
+  color: #0288d1;
 }
 
 /* Cards */
 .card {
   background-color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   margin-bottom: 20px;
   overflow: hidden;
 }
@@ -472,26 +432,41 @@ export default {
 .card-body {
   padding: 16px;
 }
-.mt-3 {
-  margin-top: 20px;
+.mt-2 { margin-top: 12px; }
+.mt-3 { margin-top: 20px; }
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-/* Top row for storager, address & date */
+/* Two columns */
+.cards-container {
+  display: flex;
+  gap: 20px;
+}
+.card-transfer {
+  flex: 2;
+}
+.card-leftovers {
+  flex: 1;
+}
+
+/* Top row */
 .top-row {
   display: flex;
+  gap: 20px;
   flex-wrap: wrap;
-  gap: 10px;
 }
 .dropdown-column {
-  flex: 1;
-  min-width: 200px;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
 }
 .dropdown-label {
   font-weight: bold;
   color: #555;
-  margin-bottom: 4px;
 }
 .dropdown-select {
   padding: 10px;
@@ -500,7 +475,7 @@ export default {
   font-size: 14px;
 }
 
-/* Styled Table for Products */
+/* Tables */
 .styled-table {
   width: 100%;
   border-collapse: collapse;
@@ -511,58 +486,10 @@ export default {
 }
 .styled-table th,
 .styled-table td {
-  padding: 10px;
   border: 1px solid #ddd;
+  padding: 8px;
   text-align: center;
 }
-
-/* Table for Cost Prices */
-.cost-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.cost-table th,
-.cost-table td {
-  padding: 10px;
-  border: 1px solid #ddd;
-  text-align: center;
-}
-.cost-table thead tr {
-  background-color: #0288d1;
-  color: #fff;
-}
-
-/* Buttons */
-.action-btn {
-  background-color: #0288d1;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.action-btn:hover {
-  background-color: #026ca0;
-}
-.remove-btn {
-  background-color: #f44336;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.remove-btn:hover {
-  background-color: #d32f2f;
-}
-.save-btn {
-  width: 100%;
-  margin-top: 10px;
-}
-
-/* Table selects & inputs */
 .table-select {
   width: 100%;
   padding: 8px;
@@ -571,30 +498,49 @@ export default {
   font-size: 14px;
 }
 .table-input {
-  width: 100%;
-  padding: 8px;
+  width: 70px;
+  padding: 6px;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 14px;
+  text-align: right;
 }
 
-/* Messages / Loading */
-.loading-indicator {
-  text-align: center;
-  color: #666;
+/* Buttons */
+.action-btn {
+  background-color: #0288d1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
 }
-.error-message {
-  color: red;
-  margin-top: 10px;
-  text-align: center;
-  font-weight: bold;
+.action-btn:hover {
+  background-color: #0270a0;
 }
+.save-btn {
+  width: 100%;
+}
+.remove-btn {
+  background-color: #f44336;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.remove-btn:hover {
+  background-color: #d32f2f;
+}
+
+/* Feedback Message */
 .feedback-message {
-  margin-top: 20px;
+  margin-top: 16px;
   text-align: center;
   font-weight: bold;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .feedback-message.success {
   background-color: #d4edda;
@@ -603,10 +549,5 @@ export default {
 .feedback-message.error {
   background-color: #f8d7da;
   color: #721c24;
-}
-.flex-between {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 </style>

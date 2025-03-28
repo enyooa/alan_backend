@@ -16,12 +16,13 @@ class CreateOrdersTable extends Migration
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
             $table->integer('user_id'); // User who placed the order
-            $table->string('status')->default('pending'); // Status: pending, processing, shipped, delivered, canceled
+
+            $table->unsignedBigInteger('status_id')->nullable();
             $table->string('address')->nullable(); // Delivery address
             $table->timestamp('shipped_at')->nullable(); // When the order was shipped
             $table->timestamp('delivered_at')->nullable(); // When the order was delivered
             $table->timestamps();
-        
+
         });
     }
 

@@ -23,7 +23,7 @@ class PriceOfferOrder extends Model
      */
     public function priceOffers(): HasMany
     {
-        return $this->hasMany(PriceOffer::class);
+        return $this->hasMany(PriceOfferItem::class);
     }
 
     /**
