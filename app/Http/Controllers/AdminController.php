@@ -419,6 +419,8 @@ public function storeIncomes(Request $request)
                     'document_id' => $doc->id,
                     'name'        => $exp['name']   ?? 'Расход',
                     'amount'      => $exp['amount'] ?? 0,
+                    'provider_id' => $exp['provider_id']  ?? null,
+
                 ]);
             }
         }

@@ -19,10 +19,11 @@ class CourierController extends Controller
     public function getCourierOrders(Request $request)
     {
         $courierId = $request->user()->id;
-
+// $tenantId = $request->user()->tenant_id;
         // 1. Fetch courier orders
         $orders = Order::with(['orderProducts.productSubCard.productCard'])
             ->whereNotNull('packer_id')
+            ->where('tenant_id')
             ->orderBy('created_at', 'desc')
             ->get();
 

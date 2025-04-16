@@ -93,84 +93,85 @@ class ReferenceController extends Controller
 
     // 2) Unified update method (PATCH)
     public function update(Request $request, $type, $id)
-    {
+{
+    try {
+        switch ($type) {
+            case 'productCard':
+                $model = ProductCard::findOrFail($id);
+                $validatedData = $request->validate([
+                    'name_of_products' => 'required|string',
+                    'description'      => 'nullable|string',
+                    'country'          => 'nullable|string',
+                    'type'             => 'nullable|string',
+                    'photo_product'    => 'nullable'
+                ]);
 
-        try {
-            switch ($type) {
-                case 'productCard':
-                    $model = ProductCard::findOrFail($id);
-                    $validatedData = $request->validate([
-                        'name_of_products' => 'required|string',
-                        'description'      => 'nullable|string',
-                        'country'          => 'nullable|string',
-                        'type'             => 'nullable|string',
-                        // Let 'photo_product' be a file if user uploads a new image
-                        'photo_product'    => 'nullable'
-                    ]);
+                if ($request->hasFile('photo_product')) {
+                    $path = $request->file('photo_product')->store('products', 'public');
+                    $validatedData['photo_product'] = $path;
+                }
 
-                    // If a file was uploaded, store it
-                    if ($request->hasFile('photo_product')) {
-                        $path = $request->file('photo_product')->store('products', 'public');
-                        $validatedData['photo_product'] = $path;
-                    }
+                $model->update($validatedData);
+                return response()->json($model, 200);
 
-                    $model->update($validatedData);
-                    return response()->json($model, 200);
+            case 'subproductCard':
+                $model = ProductSubCard::findOrFail($id);
+                $validatedData = $request->validate([
+                    'product_card_id' => 'required|integer',
+                    'name'            => 'required|string',
+                ]);
+                break;
 
+            case 'provider':
+                $model = Provider::findOrFail($id);
+                $validatedData = $request->validate([
+                    'name' => 'required|string',
+                ]);
+                break;
 
-                case 'subproductCard':
-                    $model = ProductSubCard::findOrFail($id);
-                    $validatedData = $request->validate([
-                        'product_card_id' => 'required|integer',
-                        'name'            => 'required|string',
+            case 'unit':
+                // HERE is the ONLY change: we added unique validation.
+                $model = Unit_measurement::findOrFail($id);
 
-                    ]);
-                    break;
+                $validatedData = $request->validate([
+                    'name' => [
+                        'required',
+                        'string',
+                        "unique:unit_measurements,name,{$id},id"
+                    ],
+                    'tare' => 'nullable|numeric',
+                ], [
+                    'name.unique' => 'Единица измерения с таким наименованием уже существует.',
+                ]);
+                break;
 
-                case 'provider':
-                    $model = Provider::findOrFail($id);
-                    $validatedData = $request->validate([
-                        'name' => 'required|string',
-                    ]);
-                    break;
+            case 'address':
+                $model = Address::findOrFail($id);
+                $validatedData = $request->validate([
+                    'name' => 'required|string',
+                ]);
+                break;
 
-                case 'unit':
-                    $model = Unit_measurement::findOrFail($id);
-                    $validatedData = $request->validate([
-                        'name' => 'required|string',
-                        'tare' => 'nullable|numeric',
-                    ]);
-                    break;
+            case 'expense':
+                $model = Expense::findOrFail($id);
+                $validatedData = $request->validate([
+                    'name'   => 'required|string',
+                    'amount' => 'nullable|numeric',
+                ]);
+                break;
 
-                case 'address':
-                    $model = Address::findOrFail($id);
-                    $validatedData = $request->validate([
-                        'name' => 'required|string',
-                    ]);
-                    break;
-
-                case 'expense':  // FIX THIS
-                    // We find existing expense
-                    $model = Expense::findOrFail($id);
-
-                    $validatedData = $request->validate([
-                        'name'   => 'required|string',
-                        'amount' => 'nullable|numeric',
-                    ]);
-                    break;
-
-                default:
-                    return response()->json(['error' => 'Invalid reference type.'], 400);
-            }
-
-            // Update the found model with validated data
-            $model->update($validatedData);
-            return response()->json($model, 200);
-
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            default:
+                return response()->json(['error' => 'Invalid reference type.'], 400);
         }
+
+        // Update the found model with validated data
+        $model->update($validatedData);
+        return response()->json($model, 200);
+
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
     }
+}
 
     // 3) Destroy method (DELETE)
     public function destroy($type, $id)

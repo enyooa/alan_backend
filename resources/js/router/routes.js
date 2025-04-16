@@ -28,5 +28,5 @@ export default [
   { path: "/operation-history", component: OperationHistory, name: "operation-history" },
   { path: "/test", component: TestProducts, name: "test" },
 
-  
+
 ];

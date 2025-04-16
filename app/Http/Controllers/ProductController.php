@@ -6,6 +6,7 @@ use App\Models\Document;
 use App\Models\DocumentItem;
 use App\Models\WarehouseItem;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
@@ -201,6 +202,158 @@ public function update(Request $request, Document $document)
         'document' => $document->fresh(['documentItems','expenses']),
     ]);
 }
+
+
+// mobile update income
+public function updateMobileIncome(Request $request, $id)
+    {
+        // 1) Find the Document (type 'income' or whichever)
+        $document = Document::findOrFail($id);
+
+        // 2) Validate the header fields from the request
+        $data = $request->validate([
+            'provider_id'           => 'nullable|integer',
+            'document_date'         => 'nullable|date',
+            'assigned_warehouse_id' => 'nullable|integer',
+            // etc.
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            // 3) Update the Document “header”
+            $document->update([
+                'provider_id'     => $data['provider_id'] ?? null,
+                'document_date'   => $data['document_date'] ?? now(),
+                'to_warehouse_id' => $data['assigned_warehouse_id'] ?? null,
+                // Possibly keep document_type_id if needed
+            ]);
+
+            $warehouseId = $document->to_warehouse_id;
+
+            // 4) Revert old items from warehouse (if you want to fully re-apply them)
+            $oldItems = $document->documentItems;
+            if ($warehouseId) {
+                foreach ($oldItems as $oldItem) {
+                    $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                        ->where('product_subcard_id', $oldItem->product_subcard_id)
+                        ->where('unit_measurement', $oldItem->unit_measurement)
+                        ->first();
+
+                    if ($whItem) {
+                        $whItem->quantity -= $oldItem->quantity;
+                        $whItem->brutto   -= $oldItem->brutto;
+                        $whItem->netto    -= $oldItem->netto;
+                        // etc. cost_price, total_sum, etc.
+                        $whItem->save();
+                    }
+                }
+            }
+
+            // 5) Update or create DocumentItems
+            $items = $request->input('products', []);
+            $existingIds = [];
+
+            foreach ($items as $itemData) {
+                if (!empty($itemData['id'])) {
+                    $docItem = $document->documentItems()->find($itemData['id']);
+                    if ($docItem) {
+                        $docItem->update($itemData);
+                        $existingIds[] = $docItem->id;
+                    }
+                } else {
+                    // create new row
+                    $newItem = $document->documentItems()->create($itemData);
+                    $existingIds[] = $newItem->id;
+                }
+            }
+
+            // Delete items the user removed
+            $document->documentItems()
+                ->whereNotIn('id', $existingIds)
+                ->delete();
+
+            // 6) Re-apply new items to warehouse
+            if ($warehouseId) {
+                $updatedItems = $document->documentItems;
+                foreach ($updatedItems as $updItem) {
+                    $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                        ->where('product_subcard_id', $updItem->product_subcard_id)
+                        ->where('unit_measurement', $updItem->unit_measurement)
+                        ->first();
+
+                    if (!$whItem) {
+                        $whItem = new WarehouseItem();
+                        $whItem->warehouse_id       = $warehouseId;
+                        $whItem->product_subcard_id = $updItem->product_subcard_id;
+                        $whItem->unit_measurement   = $updItem->unit_measurement;
+                        $whItem->quantity           = 0;
+                        $whItem->brutto             = 0;
+                        $whItem->netto              = 0;
+                    }
+
+                    $whItem->quantity += $updItem->quantity;
+                    $whItem->brutto   += $updItem->brutto;
+                    $whItem->netto    += $updItem->netto;
+                    // etc. cost_price or total_sum, if you track them
+                    $whItem->save();
+                }
+            }
+
+            // 7) Update or create “Expenses”
+            $expenseData = $request->input('expenses', []);
+            $existingExpIds = [];
+            foreach ($expenseData as $expRow) {
+                if (!empty($expRow['id'])) {
+                    $expense = $document->expenses()->find($expRow['id']);
+                    if ($expense) {
+                        $expense->update([
+                            'name'   => $expRow['name']   ?? '',
+                            'amount' => $expRow['amount'] ?? 0,
+                        ]);
+                        $existingExpIds[] = $expense->id;
+                    }
+                } else {
+                    // create
+                    $newExp = $document->expenses()->create([
+                        'name'   => $expRow['name']   ?? '',
+                        'amount' => $expRow['amount'] ?? 0,
+                    ]);
+                    $existingExpIds[] = $newExp->id;
+                }
+            }
+            $document->expenses()
+                ->whereNotIn('id', $existingExpIds)
+                ->delete();
+
+            // 8) If no items left => delete doc
+            $countItems = $document->documentItems()->count();
+            if ($countItems === 0) {
+                $document->delete();
+                DB::commit();
+                return response()->json([
+                    'success' => true,
+                    'deleted' => true,
+                    'message' => 'Document had no items, so it was deleted.',
+                ]);
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'deleted' => false,
+                'message' => 'Document updated.',
+                'document' => $document->fresh(['documentItems','expenses']),
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
 public function destroy(Document $document)
 {

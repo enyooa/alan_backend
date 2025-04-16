@@ -35,8 +35,8 @@ export default {
         //{ label: "Аккаунты", to: "/accounts", icon: "pi-id-card" },
         { label: "Отчеты", to: "/reports", icon: "pi-chart-line" },
         // { label: "Отчет по задолженности", to: "/client-debts", icon: "pi-money-bill" },
-        //{ label: "Карточки", to: "/test", icon: "test" },
-        
+        { label: "Карточки", to: "/test", icon: "test" },
+
       ],
     };
   },

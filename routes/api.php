@@ -186,6 +186,7 @@ use App\Http\Controllers\BasketController;
     Route::put('/documents/{document}', [ProductController::class, 'update']);
     // Удаление документа
     Route::delete('/documents/{document}', [ProductController::class, 'destroy']);
+    Route::put('/updateIncome/{id}', [ProductController::class, 'updateMobileIncome']);
 
 
     /**
