@@ -10,4 +10,10 @@ class Provider extends Model
     use HasFactory;
     protected $fillable = ['name'];
 
+    // app/Models/FinancialOrder.php
+public function provider()
+{
+    return $this->belongsTo(Provider::class, 'provider_id');
+}
+
 }

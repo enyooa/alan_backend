@@ -166,55 +166,33 @@ export default {
   }
 };
 </script>
+<!-- <template> и <script> — без изменений -->
 
-<style scoped>
-.report-container {
-  max-width: 900px;
-  margin: 30px auto;
-  font-family: sans-serif;
-}
+    <style scoped>
+    /* контейнер и фильтры — прежние */
+    .report-container { max-width:900px; margin:30px auto; font-family:sans-serif; }
+    .filters { margin-bottom:20px; display:flex; gap:1rem; align-items:center; }
+    button  { padding:6px 14px; cursor:pointer; border:1px solid #ccc; background:#f4f4f4;
+              transition:background-color .2s; }
+    button:hover { background:#e2e2e2; }
 
-.filters {
-  margin-bottom: 20px;
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
+    /* ===== таблица в стиле отчёта по кассе ===== */
+    .report-table { width:100%; border-collapse:collapse; margin-top:10px; background:#fff; }
 
-button {
-  padding: 6px 14px;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  background-color: #f4f4f4;
-  transition: background-color 0.2s;
-}
+    /* шапка — синяя, текст белый */
+    .report-table thead { background:#0288d1; color:#fff; }
+    .report-table th, .report-table td { border:1px solid #ddd; padding:8px 6px; text-align:right; }
+    .report-table th:first-child,
+    .report-table td:first-child     { text-align:left; }
 
-button:hover {
-  background-color: #e2e2e2;
-}
+    /* строка‑группа (склад) */
+    .warehouse-row td { background:#f5f5f5; font-weight:600; }
 
-.report-table {
-  width: 100%;
-  border-collapse: collapse;
-}
+    /* строки‑товары */
+    .report-table tbody tr:not(.warehouse-row) td { background:#fff; }
+    .report-table tbody tr:not(.warehouse-row) td:first-child { padding-left:20px; }
 
-.report-table thead {
-  background-color: #efefef;
-}
+    /* подвал */
+    .report-table tfoot td { background:#fafafa; font-weight:600; }
+    </style>
 
-.report-table th,
-.report-table td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  text-align: left;
-}
-
-.report-table th {
-  font-weight: 600;
-}
-
-.warehouse-row {
-  background-color: #f9f9f9;
-  font-weight: bold;
-}
-</style>

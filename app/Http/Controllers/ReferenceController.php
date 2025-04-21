@@ -8,11 +8,204 @@ use App\Models\Provider;
 use App\Models\Unit_measurement;
 use App\Models\Address;
 use App\Models\Expense;
+use App\Models\Reference;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class ReferenceController extends Controller
 {
+    public function index(): \Illuminate\Http\JsonResponse
+    {
+        $refs = Reference::with('items:id,reference_id,name,description,value,type,country')
+            ->get()
+            ->map(fn($ref) => [
+                'id'            => $ref->id,
+                'title'         => $ref->title,
+                'created_at'    => $ref->created_at->toDateTimeString(),
+                'RefferenceItem'=> $ref->items->map(fn($item) => [
+                    'id'            => $item->id,
+                    'reference_id'  => $item->reference_id,
+                    'name'          => $item->name,
+                    'description'   => $item->description,
+                    'value'         => $item->value,
+                    'type'          => $item->type,
+                    'country'       => $item->country,
+                ]),
+            ]);
+
+        return response()->json(['refferences' => $refs]);
+    }
+
+    public function storeWithItems(Request $request): \Illuminate\Http\JsonResponse
+    {
+        Log::info($request->all());
+
+        $validated = $request->validate([
+            'title'   => ['required','string'],
+            'card_id' => ['nullable','integer'],
+            'items'               => ['array'],
+            'items.*.name'        => ['required_with:items','string'],
+            'items.*.description' => ['nullable','string'],
+            'items.*.value'       => ['nullable','numeric'],
+            'items.*.type'        => ['nullable','string'],
+            'items.*.country'     => ['nullable','string'],
+        ]);
+
+        $reference = DB::transaction(function () use ($validated) {
+            $ref = Reference::create([
+                'title'   => $validated['title'],
+                'card_id' => $validated['card_id'] ?? null,
+            ]);
+
+            if (!empty($validated['items'])) {
+                $ref->items()->createMany($validated['items']);
+            }
+
+            return $ref->load('items');
+        });
+
+        return response()->json(['refference' => $this->formatReference($reference)], 201);
+    }
+    public function updateWithItems(Request $request, int $id): \Illuminate\Http\JsonResponse
+    {
+        $ref = Reference::with('items')->findOrFail($id);
+
+        $validated = $request->validate([
+            'title'   => ['required','string'],
+            'card_id' => ['nullable','integer'],
+
+            'items'                   => ['array'],
+            'items.*.id'              => ['sometimes','integer'],
+            'items.*.name'            => ['required_with:items','string'],
+            'items.*.description'     => ['nullable','string'],
+            'items.*.value'           => ['nullable','numeric'],
+            'items.*.type'            => ['nullable','string'],
+            'items.*.country'         => ['nullable','string'],
+
+            'deleted_item_ids'        => ['array'],
+            'deleted_item_ids.*'      => ['integer'],
+        ]);
+
+        DB::transaction(function () use ($ref, $validated) {
+            $ref->update([
+                'title'   => $validated['title'],
+                'card_id' => $validated['card_id'] ?? $ref->card_id,
+            ]);
+
+            foreach ($validated['items'] ?? [] as $item) {
+                $ref->items()->updateOrCreate(
+                    ['id' => $item['id'] ?? null],
+                    [
+                        'name'        => $item['name'],
+                        'description' => $item['description'] ?? null,
+                        'value'       => $item['value'] ?? null,
+                        'type'        => $item['type'] ?? null,
+                        'country'     => $item['country'] ?? null,
+                    ]
+                );
+            }
+
+            if (!empty($validated['deleted_item_ids'])) {
+                $ref->items()->whereIn('id', $validated['deleted_item_ids'])->delete();
+            }
+        });
+
+        return response()->json(['refference' => $this->formatReference($ref->fresh('items'))]);
+    }
+    public function store(Request $request, $type)   // /reference/{type}
+    {
+        DB::beginTransaction();
+
+        try {
+            switch ($type) {
+
+                /* ---------- ProductCard ---------- */
+                case 'productCard':
+                    $data = $request->validate([
+                        'name_of_products' => 'required|string',
+                        'description'      => 'nullable|string',
+                        'country'          => 'nullable|string',
+                        'type'             => 'nullable|string',
+                        'photo_product'    => 'nullable|image|max:2048', // 2 MB
+                    ]);
+
+                    if ($request->hasFile('photo_product')) {
+                        $data['photo_product'] =
+                            $request->file('photo_product')
+                                    ->store('products', 'public');
+                    }
+
+                    $model = ProductCard::create($data);
+                    break;
+
+                /* ---------- ProductSubCard ---------- */
+                case 'subproductCard':
+                    $data = $request->validate([
+                        'product_card_id' => 'required|integer|exists:product_cards,id',
+                        'name'            => 'required|string',
+                    ]);
+
+                    $model = ProductSubCard::create($data);
+                    break;
+
+                /* ---------- Provider ---------- */
+                case 'provider':
+                    $data = $request->validate([
+                        'name' => 'required|string',
+                    ]);
+
+                    $model = Provider::create($data);
+                    break;
+
+                /* ---------- Unit ---------- */
+                case 'unit':
+                    $data = $request->validate([
+                        'name' => 'required|string|unique:unit_measurements,name',
+                        'tare' => 'nullable|numeric',
+                    ]);
+
+                    $model = Unit_measurement::create($data);
+                    break;
+
+                /* ---------- Address ---------- */
+                case 'address':
+                    $data = $request->validate([
+                        'name'       => 'required|string',
+                        'city'       => 'nullable|string',
+                        'street'     => 'nullable|string',
+                        'house'      => 'nullable|string',
+                        'additional' => 'nullable|string',
+                    ]);
+
+                    $model = Address::create($data);
+                    break;
+
+                /* ---------- Expense ---------- */
+                case 'expense':
+                    $data = $request->validate([
+                        'name'   => 'required|string',
+                        'amount' => 'nullable|numeric',
+                    ]);
+
+                    $model = Expense::create($data);
+                    break;
+
+                /* ---------- Unknown ---------- */
+                default:
+                    return response()->json(['error' => 'Invalid reference type.'], 400);
+            }
+
+            DB::commit();
+            return response()->json($model, 201);   // 201 Created
+
+        } catch (\Throwable $e) {
+
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
     // 1) Fetch data by type
     public function fetch($type)
     {
@@ -92,126 +285,103 @@ class ReferenceController extends Controller
 }
 
     // 2) Unified update method (PATCH)
-    public function update(Request $request, $type, $id)
-{
-    try {
-        switch ($type) {
-            case 'productCard':
-                $model = ProductCard::findOrFail($id);
-                $validatedData = $request->validate([
-                    'name_of_products' => 'required|string',
-                    'description'      => 'nullable|string',
-                    'country'          => 'nullable|string',
-                    'type'             => 'nullable|string',
-                    'photo_product'    => 'nullable'
-                ]);
-
-                if ($request->hasFile('photo_product')) {
-                    $path = $request->file('photo_product')->store('products', 'public');
-                    $validatedData['photo_product'] = $path;
-                }
-
-                $model->update($validatedData);
-                return response()->json($model, 200);
-
-            case 'subproductCard':
-                $model = ProductSubCard::findOrFail($id);
-                $validatedData = $request->validate([
-                    'product_card_id' => 'required|integer',
-                    'name'            => 'required|string',
-                ]);
-                break;
-
-            case 'provider':
-                $model = Provider::findOrFail($id);
-                $validatedData = $request->validate([
-                    'name' => 'required|string',
-                ]);
-                break;
-
-            case 'unit':
-                // HERE is the ONLY change: we added unique validation.
-                $model = Unit_measurement::findOrFail($id);
-
-                $validatedData = $request->validate([
-                    'name' => [
-                        'required',
-                        'string',
-                        "unique:unit_measurements,name,{$id},id"
-                    ],
-                    'tare' => 'nullable|numeric',
-                ], [
-                    'name.unique' => 'Единица измерения с таким наименованием уже существует.',
-                ]);
-                break;
-
-            case 'address':
-                $model = Address::findOrFail($id);
-                $validatedData = $request->validate([
-                    'name' => 'required|string',
-                ]);
-                break;
-
-            case 'expense':
-                $model = Expense::findOrFail($id);
-                $validatedData = $request->validate([
-                    'name'   => 'required|string',
-                    'amount' => 'nullable|numeric',
-                ]);
-                break;
-
-            default:
-                return response()->json(['error' => 'Invalid reference type.'], 400);
+    public function update(Request $request, int $id): \Illuminate\Http\JsonResponse
+    {
+        $payload = $request->input('refference');
+        if (!$payload) {
+            return response()->json(['error' => 'Missing “refference” wrapper'], 422);
         }
 
-        // Update the found model with validated data
-        $model->update($validatedData);
-        return response()->json($model, 200);
+        $validator = Validator::make($payload, [
+            'title'   => ['required','string'],
+            'card_id' => ['nullable','integer'],
 
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
-}
+            'RefferenceItem'                => ['array'],
+            'RefferenceItem.*.id'           => ['sometimes','integer'],
+            'RefferenceItem.*.name'         => ['required_with:RefferenceItem','string'],
+            'RefferenceItem.*.description'  => ['nullable','string'],
+            'RefferenceItem.*.value'        => ['nullable','numeric'],
+            'RefferenceItem.*.type'         => ['nullable','string'],
+            'RefferenceItem.*.country'      => ['nullable','string'],
 
-    // 3) Destroy method (DELETE)
-    public function destroy($type, $id)
-    {
+            'deleted_item_ids'              => ['array'],
+            'deleted_item_ids.*'            => ['integer'],
+        ]);
+        if ($validator->fails()) return response()->json($validator->errors(),422);
 
-        try {
-            switch ($type) {
-                case 'productCard':
-                    $model = ProductCard::findOrFail($id);
-                    break;
+        $data        = $validator->validated();
+        $items       = $data['RefferenceItem']   ?? [];
+        $idsToDelete = $data['deleted_item_ids'] ?? [];
 
-                case 'subproductCard':
-                    $model = ProductSubCard::findOrFail($id);
-                    break;
+        $reference = DB::transaction(function () use ($id, $data, $items, $idsToDelete) {
+            $ref = Reference::with('items')->findOrFail($id);
 
-                case 'provider':
-                    $model = Provider::findOrFail($id);
-                    break;
+            $ref->update([
+                'title'   => $data['title'],
+                'card_id' => $data['card_id'] ?? $ref->card_id,
+            ]);
 
-                case 'unit':
-                    $model = Unit_measurement::findOrFail($id);
-                    break;
-
-                case 'address':
-                    $model = Address::findOrFail($id);
-                    break;
-
-                case 'expense':  // ADD THIS
-                    $model = Expense::findOrFail($id);
-                    break;
-
-                default:
-                    return response()->json(['error' => 'Invalid reference type.'], 400);
+            foreach ($items as $item) {
+                $ref->items()->updateOrCreate(
+                    ['id' => $item['id'] ?? null],
+                    [
+                        'name'        => $item['name'],
+                        'description' => $item['description'] ?? null,
+                        'value'       => $item['value'] ?? null,
+                        'type'        => $item['type'] ?? null,
+                        'country'     => $item['country'] ?? null,
+                    ]
+                );
             }
 
-            $model->delete();
-            return response()->json(['message' => 'Запись успешно удалена.'], 200);
+            if ($idsToDelete) {
+                $ref->items()->whereIn('id', $idsToDelete)->delete();
+            }
 
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
+            return $ref->fresh('items');
+        });
+
+        return response()->json(['refference' => $this->formatReference($reference)]);
     }
+
+    // 3) Destroy method (DELETE)
+    public function destroy(Request $request, int $id): \Illuminate\Http\JsonResponse
+    {
+        $ref      = Reference::with('items')->findOrFail($id);
+        $payload  = $request->input('refference') ?? [];
+        $idsToDel = $payload['deleted_item_ids'] ?? [];
+
+        DB::transaction(function () use ($ref, $idsToDel) {
+            if ($idsToDel) {
+                $ref->items()->whereIn('id', $idsToDel)->delete();
+            } else {
+                $ref->delete();
+            }
+        });
+
+        if ($idsToDel) {
+            return response()->json(['refference' => $this->formatReference($ref->fresh('items'))]);
+        }
+
+        return response()->json(['refference' => ['id' => $id, 'deleted' => true]]);
+    }
+
+    private function formatReference(Reference $ref): array
+    {
+        return [
+            'id'         => $ref->id,
+            'title'      => $ref->title,
+            'created_at' => $ref->created_at->toDateTimeString(),
+            'RefferenceItem' => $ref->items->map(fn($item) => [
+                'id'            => $item->id,
+                'reference_id'  => $item->reference_id,
+                'name'          => $item->name,
+                'description'   => $item->description,
+                'value'         => $item->value,
+                'type'          => $item->type,
+                'country'       => $item->country,
+            ]),
+        ];
+    }
+
 }

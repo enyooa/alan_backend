@@ -42,4 +42,11 @@ class FinancialOrder extends Model
     {
         return $this->belongsTo(FinancialElement::class, 'financial_element_id');
     }
+
+    // app/Models/FinancialOrder.php
+    public function provider()
+    {
+        return $this->belongsTo(Provider::class, 'provider_id');
+    }
+
 }

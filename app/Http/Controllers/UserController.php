@@ -184,4 +184,58 @@ public function removeRole(Request $request, User $user)
         // 2) Возвращаем JSON
         return response()->json($users, 200);
     }
+
+    public function stuff()
+{
+    /* ---------- users without any role ---------- */
+    $noRoleUsers = User::doesntHave('roles')
+        ->with('permissions')                    // eager‑load perms
+        ->get()
+        ->map(fn ($u) => $this->userPayload($u));
+
+    /* ---------- every role with its users ---------- */
+    $roles = Role::with(['users.permissions'])   // eager‑load roles→users→perms
+                 ->orderBy('name')
+                 ->get();
+
+    $data = collect();
+
+    /* block ➊  “Без ролей” */
+    $data->push([
+        'role'  => 'Без ролей',
+        'users' => $noRoleUsers,
+    ]);
+
+    /* blocks ➋  each actual role */
+    foreach ($roles as $role) {
+        $data->push([
+            'role'  => $role->name,
+            'users' => $role->users
+                           ->map(fn ($u) => $this->userPayload($u)),
+        ]);
+    }
+
+    return response()->json($data->values(), 200);
+}
+
+/** Convert a user to JSON shape */
+private function userPayload(User $u): array
+{
+    $roleNames = $u->roles->pluck('name')->values();     // ['admin', 'client', …]
+
+    return [
+        'id'          => $u->id,
+        'first_name'  => $u->first_name,
+        'last_name'   => $u->last_name,
+        'surname'     => $u->surname,
+        'whatsapp'    => $u->whatsapp_number,
+        'roles'       => $roleNames,                     // ← NEW array of roles
+        'permissions' => $u->permissions
+                           ->map(fn ($p) => [$p->name, (string)$p->code])
+                           ->values(),
+    ];
+}
+
+    /* helper: что именно отдаём о пользователе  */
+
 }

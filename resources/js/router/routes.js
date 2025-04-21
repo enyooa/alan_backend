@@ -11,6 +11,8 @@ import CustomerDebtReport from "../views/CustomerDebtReport.vue";
 import ReceiveProducts from "../views/ReceiveProducts.vue";
 import OperationHistory from "../views/OperationHistory.vue";
 import TestProducts from "../views/TestProducts.vue";
+import TariffPlan from "../views/TariffPlan.vue";
+
 
 export default [
   { path: "/", redirect: "/dashboard" }, // Default to the dashboard
@@ -27,6 +29,7 @@ export default [
   { path: "/receive", component: ReceiveProducts, name: "receive" },
   { path: "/operation-history", component: OperationHistory, name: "operation-history" },
   { path: "/test", component: TestProducts, name: "test" },
+  { path: "/tariff-plan", component: TariffPlan, name: "tariff-plan" },
 
 
 ];

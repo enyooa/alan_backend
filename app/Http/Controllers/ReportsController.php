@@ -491,6 +491,72 @@ class ReportsController extends Controller
         return response()->json($reportRows);
     }
 
+    public function cash_report(Request $request)
+    {
+        /* ---------- подбираем заказы с учётом фильтров ---------- */
+        $orders = FinancialOrder::with([
+                'adminCash:id,name',
+                'financialElement:id,name'
+            ])
+
+            // даты
+            ->when($request->filled(['date_from', 'date_to']),
+                fn($q) => $q->whereBetween('date_of_check', [
+                    $request->date_from, $request->date_to
+                ])
+            )
+
+            // касса
+            ->when($request->filled('cashbox'),
+                fn($q) => $q->whereHas('adminCash', fn($s) =>
+                        $s->where('name', 'like', "%{$request->cashbox}%"))
+            )
+
+            // статья
+            ->when($request->filled('element'),
+                fn($q) => $q->whereHas('financialElement', fn($s) =>
+                        $s->where('name', 'like', "%{$request->element}%"))
+            )
+            ->get();
+
+        /* ---------- агрегируем: КАССА ➜ СТАТЬЯ ---------- */
+        $result = $orders
+            ->groupBy(fn($o) => $o->adminCash->name ?? '—')          // ← 1‑й уровень
+            ->map(function ($cashGroup, $cashName) {
+
+                // ——— агрегаты кассы
+                $income  = $cashGroup->where('type', 'income') ->sum('summary_cash');
+                $expense = $cashGroup->where('type', 'expense')->sum('summary_cash');
+                $balance = round($income - $expense, 3);
+
+                // ——— статьи внутри кассы
+                $elements = $cashGroup
+                    ->groupBy(fn($o) => $o->financialElement->name ?? '—') // 2‑й уровень
+                    ->map(function ($elGroup, $elName) {
+                        $inc = $elGroup->where('type','income') ->sum('summary_cash');
+                        $exp = $elGroup->where('type','expense')->sum('summary_cash');
+
+                        return [
+                            'element' => $elName,
+                            'income'  => round($inc , 3),
+                            'expense' => round($exp , 3),
+                        ];
+                    })
+                    ->values();   // убираем ключи‑названия
+
+                return [
+                    'cashbox' => $cashName,
+                    'start'   => $balance,           // вы указали «начальный = приход−расход»
+                    'income'  => round($income , 3),
+                    'expense' => round($expense, 3),
+                    'end'     => $balance,           // то же значение
+                    'elements'=> $elements           // <—— список строк‑деталей
+                ];
+            })
+            ->values();   // превращаем в массив
+
+        return response()->json($result, 200);
+    }
 
     public function exportPdf(Request $request)
     {

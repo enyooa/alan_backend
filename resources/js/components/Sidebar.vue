@@ -36,6 +36,7 @@ export default {
         { label: "Отчеты", to: "/reports", icon: "pi-chart-line" },
         // { label: "Отчет по задолженности", to: "/client-debts", icon: "pi-money-bill" },
         { label: "Карточки", to: "/test", icon: "test" },
+        { label: "Тарифный план", to: "/tariff-plan", icon: "pi-money" },
 
       ],
     };

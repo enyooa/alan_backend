@@ -320,7 +320,7 @@
     height: 100%;
   }
   .hero-text h1 {
-    font-size: 2.8rem;
+    font-size: 50px; /* bigger heading text */
     background: linear-gradient(to right, #333 40%, #C0FB63 60%);
     -webkit-background-clip: text;
     color: transparent;

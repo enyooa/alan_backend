@@ -22,7 +22,9 @@ use App\Http\Controllers\BasketController;
     use App\Http\Controllers\SalesController;
     use App\Http\Controllers\StorageController;
     use App\Http\Controllers\FinancialElementController;
-    use App\Http\Controllers\PriceOfferController;  // HEAD line
+use App\Http\Controllers\FinancialSummaryController;
+use App\Http\Controllers\PermissionAssignmentController;
+use App\Http\Controllers\PriceOfferController;  // HEAD line
     use App\Http\Controllers\ProductController;      // HEAD line
     use App\Http\Controllers\ProfileController;      // HEAD line
     use App\Http\Controllers\ReferenceController;    // HEAD line
@@ -302,22 +304,9 @@ use App\Http\Controllers\BasketController;
      * Cashbox & Admin
      */
     Route::middleware(['auth:sanctum', 'role:cashbox,admin'])->group(function () {
-    Route::post('/financial-elements', [FinancialElementController::class, 'store']);
-    Route::put('/financial-elements/{id}', [FinancialElementController::class, 'update']);
-    Route::delete('/financial-elements/{id}', [FinancialElementController::class, 'destroy']);
-    Route::get('/financial-elements', [FinancialElementController::class, 'index']);
 
-    Route::get('/client-users', [AdminController::class, 'getClientUsers']);
-
-    Route::get('providers',[AdminController::class,'getProviders']);
-    Route::post('financial-orders', [FinancialElementController::class, 'storeFinancialOrders']);
-
-    Route::get('financial-order', [FinancialElementController::class, 'financialOrder']);
-    Route::put('/financial-order/{id}', [FinancialElementController::class, 'update']);
-    Route::delete('/financial-order/{id}', [FinancialElementController::class, 'destroyFinancialOrder']);
     });
     Route::middleware(['auth:sanctum', 'role:cashbox,client'])->group(function () {
-    Route::get('/admin-cashes', [AdminController::class, 'adminCashes']);
     Route::get('/financial-elements', [FinancialElementController::class, 'index']);
 
 });
@@ -400,3 +389,74 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
  * Twilio Verification (HEAD)
  */
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
+    Route::middleware(['auth:sanctum', 'role:superadmin'])->group(function () {
+
+    Route::prefix('financial-summary')->group(function () {
+        Route::get('day',   [FinancialSummaryController::class, 'day']);    // ?date=YYYY‑MM‑DD
+        Route::get('week',  [FinancialSummaryController::class, 'week']);   // ?date=YYYY‑MM‑DD (любой день недели)
+        Route::get('month', [FinancialSummaryController::class, 'month']);  // ?year=YYYY&month=MM
+        Route::get('year',  [FinancialSummaryController::class, 'year']);   // ?year=YYYY
+    });
+
+    Route::get('report-debts', [ReportsController::class, 'debtsReport']);
+    Route::get('report-sales', [ReportsController::class, 'getSalesReport']);
+    Route::get('/reports/sales/pdf', [ReportsController::class, 'exportPdf']);
+    Route::get('/reports/sales/excel', [ReportsController::class, 'exportExcel']);
+    Route::get('report-warehouses', [ReportsController::class, 'getStorageReport']);
+
+    // справочники
+
+    Route::get('/reference', [ReferenceController::class,'index']);   // NEW
+    Route::get('/reference/{type}', [ReferenceController::class, 'fetch']);
+    Route::post('/reference', [ReferenceController::class, 'storeWithItems']);
+
+    Route::patch('/reference/{id}', [ReferenceController::class, 'update']);
+    Route::delete('/reference/{id}', [ReferenceController::class, 'destroy']);
+
+    Route::get('/reference/{type}/{id}', [ReferenceController::class, 'fetchOne']);
+    Route::patch('/refferences/{id}', [ReferenceController::class, 'updateWithItems']);
+
+
+    Route::get   ('permissions',                [PermissionAssignmentController::class,'catalog']);
+    Route::get   ('users/{user}/permissions',                [PermissionAssignmentController::class,'index']);
+    Route::post  ('users/{user}/permissions',                [PermissionAssignmentController::class,'store']);
+    Route::delete('users/{user}/permissions/{code}',         [PermissionAssignmentController::class,'destroy']);
+    Route::put   ('users/{user}/permissions',        [PermissionAssignmentController::class,'update']);
+
+    // отчеты
+    Route::get('cash-report', [ReportsController::class, 'cash_report']);
+
+    // сотрудники
+    Route::get('stuff', [UserController::class, 'stuff']);
+
+
+    // фин ордер
+    Route::post('/financial-elements', [FinancialElementController::class, 'store']);
+    Route::put('/financial-elements/{id}', [FinancialElementController::class, 'update']);
+    Route::delete('/financial-elements/{id}', [FinancialElementController::class, 'destroy']);
+    Route::get('/financial-elements',                [FinancialElementController::class, 'index']);
+
+    // only “income” or only “expense” for the current user
+    Route::get('/financial-elements/{type}',         [FinancialElementController::class, 'byType'])
+     ->where('type', 'income|expense');
+
+    Route::get('/client-users', [AdminController::class, 'getClientUsers']);
+// поставщики
+    Route::get('providers',[AdminController::class,'getProviders']);
+// счета админа
+    Route::get('/admin-cashes', [AdminController::class, 'adminCashes']);
+
+    // Route::post('financial-order', [FinancialElementController::class, 'storeFinancialOrder']);
+    Route::post('financial-orders', [FinancialElementController::class, 'storeFinancialOrders']);
+
+    Route::get('financial-orders', [FinancialElementController::class, 'financialOrder']);
+    Route::get('financial-orders/{type}',         [FinancialElementController::class, 'financialOrderByType'])
+     ->where('type', 'income|expense');
+    Route::put('/financial-order/{id}', [FinancialElementController::class, 'updateFinancialOrder']);
+    Route::delete('/financial-order/{id}', [FinancialElementController::class, 'destroyFinancialOrder']);
+
+
+    // Документы
+    Route::get('/documents/all', [ProductController::class, 'allHistories']);
+
+});

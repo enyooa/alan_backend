@@ -140,4 +140,33 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(CourierDocument::class, 'client_courier_documents', 'client_id', 'courier_document_id');
     }
+
+    public function permissions()
+{
+    return $this->belongsToMany(Permission::class, 'permission_user');
+}
+
+/* проверить наличие операции */
+public function hasPermission($code)
+{
+    return $this->permissions->contains('code', $code);
+}
+
+/* назначить */
+public function givePermission($code)
+{
+    $perm = Permission::where('code',$code)->first();
+    if ($perm && !$this->hasPermission($code)) {
+        $this->permissions()->attach($perm->id);
+    }
+}
+
+/* снять */
+public function revokePermission($code)
+{
+    $perm = Permission::where('code',$code)->first();
+    if ($perm) {
+        $this->permissions()->detach($perm->id);
+    }
+}
 }
