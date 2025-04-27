@@ -16,6 +16,7 @@ class CreateReferenceItemsTable extends Migration
         // database/migrations/…_create_reference_items_table.php
 Schema::create('reference_items', function (Blueprint $table) {
     $table->id();
+    $table->unsignedBigInteger('card_id')->nullable();
 
     // single, correctly‑spelled column + FK
     $table->foreignId('reference_id')              // NOT 2 lines, no typo

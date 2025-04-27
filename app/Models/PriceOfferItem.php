@@ -7,20 +7,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PriceOfferItem extends Model
 {
-    protected $table = 'price_offer_items'; // If you want to be explicit
+    protected $table = 'price_offer_items';
 
     protected $fillable = [
-        'choice_status',
         'price_offer_order_id',
         'product_subcard_id',
-        'unit_measurement',
-        'amount',
-        'price',
-        'totalsum',
-        'start_date',
-        'end_date',
+        'unit_measurement',   // имя единицы («Ящик»)
+        'amount',             // количество
+        'price',              // цена за единицу
     ];
-
     public function priceOfferOrder(): BelongsTo
     {
         return $this->belongsTo(PriceOfferOrder::class, 'price_offer_order_id');
@@ -29,5 +24,16 @@ class PriceOfferItem extends Model
     public function productSubCard(): BelongsTo
     {
         return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
+    }
+    public function unitRef(): BelongsTo
+    {
+        return $this->belongsTo(ReferenceItem::class,
+                                'unit_measurement', 'name');
+        // <─ связываемся по NAME
+    }
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(ReferenceItem::class,
+                                'product_subcard_id');
     }
 }

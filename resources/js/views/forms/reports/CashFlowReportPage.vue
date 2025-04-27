@@ -155,7 +155,7 @@
           if (this.filters.cashbox)  params.cashbox   = this.filters.cashbox;
           if (this.filters.element)  params.element   = this.filters.element; // новый
 
-          const { data } = await axios.get("/api/financial-order", {
+          const { data } = await axios.get("/api/financial-orders", {
             headers:{ Authorization:`Bearer ${token}` },
             params
           });

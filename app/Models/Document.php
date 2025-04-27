@@ -24,9 +24,20 @@ class Document extends Model
         'comments',
     ];
 
-    public function client()
+    public function client()            // клиент-покупатель
     {
-        return $this->belongsTo(User::class, 'client_id');
+        /* вытягиваем только нужные поля; добавьте phone/e-mail,
+           если они требуются на фронте                           */
+        return $this->belongsTo(User::class, 'client_id')
+                    ->select('id','first_name','last_name','surname');
+    }
+
+    public function getClientInfoAttribute()
+    {
+        // если связь уже загружена – берём её, иначе подгружаем
+        return $this->relationLoaded('client')
+               ? $this->client
+               : $this->client()->first();
     }
     // Связь с деталями
     public function documentItems()
@@ -67,4 +78,29 @@ class Document extends Model
     // If your Expense table has `document_id` as a foreign key
     return $this->hasMany(Expense::class, 'document_id');
 }
+public function items()            { return $this->hasMany(DocumentItem::class,'document_id'); }
+
+
+public function toWarehouse()      { return $this->belongsTo(Warehouse::class,'to_warehouse_id'); }
+
+
+public function fromWarehouse()    { return $this->belongsTo(Warehouse::class,'from_warehouse_id'); }
+
+public function providerItem()           // вместо старой Provider-модели
+{
+    /*  provider_id  теперь →  id из reference_items
+        у самой строки‐item сразу вытянем “родителя” – Reference (карточку «Поставщик»),
+        чтобы на фронте был и заголовок, и сам поставщик-item                    */
+    return $this->belongsTo(ReferenceItem::class, 'provider_id')
+                ->with('reference:id,title');
+}
+
+protected $appends = ['client_info'];
+
+    // чтобы не засорять ответ лишними полями
+    protected $hidden  = [
+        'client_id',    // raw-id больше не нужен
+        'client',       // сама relation-коллекция
+        'from_warehouse_id',  // по-желанию
+    ];
 }

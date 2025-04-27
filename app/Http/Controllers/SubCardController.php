@@ -6,6 +6,7 @@ use App\Models\AdminWarehouse;
 use App\Models\Document;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
+use App\Models\ReferenceItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -38,6 +39,7 @@ class SubCardController extends Controller
 
     /**
      * Get all subcards, each with total quantity and batch details from AdminWarehouse
+     * old version
      */
     public function getSubCards()
     {
@@ -50,6 +52,41 @@ class SubCardController extends Controller
             return response()->json(['error' => 'Failed to fetch subcards with batch details.'], 500);
         }
     }
+
+
+    public function getProductSubcards(Request $request)
+{
+    try {
+        /* -----------------------------
+         | 1) базовый запрос + optional фильтр
+         * ---------------------------*/
+        $items = ReferenceItem::query()
+            ->when(
+                $request->filled('reference_id'),
+                fn ($q) => $q->where('reference_id', $request->reference_id)
+            )
+            ->with('reference:id,title')   // подтягиваем название карточки
+            ->get();
+
+        /* -----------------------------
+         | 2) подготовка payload
+         * ---------------------------*/
+        $payload = $items->map(fn ($it) => [
+            'id'              => $it->id,
+            'reference_id'    => $it->reference_id,
+            'reference_title' => $it->reference?->title,
+            'name'            => $it->name,
+            'value'           => $it->value,
+        ]);
+
+        return response()->json($payload, 200);
+
+    } catch (\Throwable $e) {
+        \Log::error('Error fetching card items', ['error' => $e->getMessage()]);
+        return response()->json(['error' => 'Failed to fetch card items.'], 500);
+    }
+}
+
 
     /**
      * Fetch all subcards for a specific product card

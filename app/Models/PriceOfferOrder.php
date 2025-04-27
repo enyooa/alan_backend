@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PriceOfferOrder extends Model
@@ -13,6 +14,8 @@ class PriceOfferOrder extends Model
     protected $fillable = [
         'client_id',
         'address_id',
+        'warehouse_id',
+
         'start_date',
         'end_date',
         'totalsum'
@@ -21,11 +24,10 @@ class PriceOfferOrder extends Model
     /**
      * Relationship to PriceOffer (HEAD version).
      */
-    public function priceOffers(): HasMany
+    public function priceOffers()
     {
-        return $this->hasMany(PriceOfferItem::class);
+        return $this->hasMany(PriceOfferItem::class, 'price_offer_order_id');
     }
-
     /**
      * Relationship to ProductSubCard
      */
@@ -37,8 +39,15 @@ class PriceOfferOrder extends Model
     /**
      * Relationship to PriceRequest (via items).
      */
-    public function items()
+    public function items()          // ← контроллер использует именно items()
     {
-        return $this->hasMany(PriceRequest::class, 'price_request_id');
+        return $this->hasMany(PriceOfferItem::class, 'price_offer_order_id');
+    }
+
+    public function client()     { return $this->belongsTo(User::class,     'client_id');  }
+    public function address()    { return $this->belongsTo(Address::class,  'address_id'); }
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 }

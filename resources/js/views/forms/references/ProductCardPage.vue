@@ -33,7 +33,7 @@
      </form>
    </div>
  </template>
- 
+
  <script>
  import axios from "axios";
  export default {
@@ -77,7 +77,7 @@
          formData.append("country", this.form.country);
          formData.append("type", this.form.type);
          if (this.photoFile) {
-           formData.append("photo_product", this.photoFile);
+           formData.append("photo", this.photoFile);
          }
          // Replace '/api/product_cards' with your API endpoint if needed.
          const response = await axios.post("/api/product_card_create", formData, {
@@ -98,7 +98,7 @@
    },
  };
  </script>
- 
+
  <style scoped>
  .product-card-form {
    max-width: 500px;
@@ -151,4 +151,3 @@
    flex: 1;
  }
  </style>
- 

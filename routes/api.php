@@ -14,6 +14,8 @@ use App\Http\Controllers\BasketController;
     use App\Http\Controllers\DocumentController;
     use App\Http\Controllers\ExpenseController;
     use App\Http\Controllers\FavoritesController;
+    use App\Http\Controllers\InventoryController;
+
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\PackerController;
     use App\Http\Controllers\PriceRequestController;
@@ -85,7 +87,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
    /**
     * Admin Routes
     */
-    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:admin,superadmin'])->group(function () {
    /**
     * Product Cards
     */
@@ -156,9 +158,9 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
    /**
     * Sales
     */
-    Route::get('getSalesWithDetails', [SalesController::class, 'getSalesWithDetails']);
+    Route::get('sales', [SalesController::class, 'getSalesWithDetails']);
     // Route::post('sales', [SalesController::class, 'store']);
-    Route::post('bulk_sales', [SalesController::class, 'bulkStore']);
+    Route::post('sales', [SalesController::class, 'bulkStore']);
     Route::put('/sales/{id}', [SalesController::class, 'update']);
     Route::delete('/sales/{id}', [SalesController::class, 'destroy']);
 
@@ -204,6 +206,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     */
     Route::get('getStorageUsers',[StorageController::class,'getStorageUsers']);
    // Инициализация для перемещения (получение остатков "От кого" user)
+//    старая ветка перемещение
     Route::get('/transfer/init', [DocumentController::class, 'initTransfer']);
 
     // Сохранение перемещения
@@ -256,7 +259,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     });
 
     // общая ветка склада и админа
-    Route::middleware(['auth:sanctum', 'role:storager,admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:storager,admin,superadmin'])->group(function () {
         Route::get('getWarehouses',[WarehousesController::class, 'getWarehouses']);
         Route::get('/documents/{document}', [ProductController::class, 'show']);
         Route::get('getWarehouseDetails', [WarehousesController::class, 'getWarehouseDetails']);
@@ -265,7 +268,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     /**
      * Client & Admin (shared) Routes
      */
-    Route::middleware(['auth:sanctum', 'role:client,admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:client,admin,superadmin'])->group(function () {
         Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
 
     });
@@ -334,7 +337,7 @@ Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
 /**
  * Ветки складовщика
  */
-Route::middleware(['auth:sanctum', 'role:storager'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:storager,superadmin'])->group(function () {
 
     Route::get('/product_subcards_storager', [StorageController::class, 'getSubCards']);
     Route::get('getAllInstances', [StorageController::class, 'getAllInstances']);
@@ -389,7 +392,7 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
  * Twilio Verification (HEAD)
  */
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
-    Route::middleware(['auth:sanctum', 'role:superadmin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:superadmin,admin'])->group(function () {
 
     Route::prefix('financial-summary')->group(function () {
         Route::get('day',   [FinancialSummaryController::class, 'day']);    // ?date=YYYY‑MM‑DD
@@ -407,7 +410,7 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     // справочники
 
     Route::get('/reference', [ReferenceController::class,'index']);   // NEW
-    Route::get('/reference/{type}', [ReferenceController::class, 'fetch']);
+    Route::get('/reference/{type}', [ReferenceController::class, 'getReferencesByType']);
     Route::post('/reference', [ReferenceController::class, 'storeWithItems']);
 
     Route::patch('/reference/{id}', [ReferenceController::class, 'update']);
@@ -440,6 +443,9 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     Route::get('/financial-elements/{type}',         [FinancialElementController::class, 'byType'])
      ->where('type', 'income|expense');
 
+    //  new Superadmin uses 24.04.2025
+    Route::get('/client-users', [AdminController::class, 'getClientUsers']);
+
     Route::get('/client-users', [AdminController::class, 'getClientUsers']);
 // поставщики
     Route::get('providers',[AdminController::class,'getProviders']);
@@ -456,7 +462,79 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     Route::delete('/financial-order/{id}', [FinancialElementController::class, 'destroyFinancialOrder']);
 
 
+
+    // карточка товара
+    Route::get('/product-cards', [ProductCardController::class, 'index']);
+    // подкарточка товара
+    Route::get('/product-subcards', [SubCardController::class, 'getSubCards']);
+
+
     // Документы
-    Route::get('/documents/all', [ProductController::class, 'allHistories']);
+    // Route::get('/documents-all', [ProductController::class, 'allHistories']);
+    // приход товара
+    Route::get('income-products',[DocumentController::class,'indexIncomes']);
+    //приход товара
+    Route::post('/income-products', [AdminController::class, 'storeIncomes']);
+    Route::put('/income-products/{document}', [AdminController::class, 'updateIncomes'])
+    ->whereNumber('document');
+    Route::delete('/income-products/{document}',        // URL
+    [DocumentController::class,'destroyIncomes'])   // method
+->whereNumber('document');
+
+    // продажа
+
+    Route::get('sales-products',[DocumentController::class,'indexSales']);
+    Route::post('sales-products',[DocumentController::class,'postSales']);
+    Route::put('/sales-products/{document}', [DocumentController::class, 'updateSales'])
+     ->whereNumber('document');
+
+    Route::delete('/sales-products/{document}',        // URL
+    [DocumentController::class,'destroySales'])   // method
+    ->whereNumber('document');
+
+    // списание
+    Route::post('writeoff-products',[DocumentController::class,'postWriteOff']);
+    Route::put('/writeoff-products/{document}', [DocumentController::class, 'updateWriteOff'])
+    ->whereNumber('document');
+
+    Route::get('writeoff-products',[DocumentController::class,'indexWriteOff']);
+
+    Route::delete('/writeoff-products/{document}', [DocumentController::class, 'deleteWriteOff'])
+        ->whereNumber('document');
+
+    // перемещение
+    Route::get('/transfer-products', [DocumentController::class,'indexTransfers']);
+    Route::post('/transfer-products',       [DocumentController::class,'storeTransfer']);
+
+    /* обновить */
+    Route::put('transfer-products/{document}', [DocumentController::class,'updateTransfer'])
+         ->whereNumber('document');
+
+    /* удалить */
+    Route::delete('transfer-products/{document}', [DocumentController::class,'destroyTransfer'])
+         ->whereNumber('document');
+
+    Route::prefix('price-offers')->group(function () {
+
+    Route::get('/',               [PriceRequestController::class,'index']);
+
+    Route::post('/',              [PriceRequestController::class,'store']);
+
+    Route::get('{order}',         [PriceRequestController::class,'show'])
+            ->whereNumber('order');
+
+    Route::put('{order}',         [PriceRequestController::class,'update'])
+            ->whereNumber('order');
+
+    Route::delete('{order}',      [PriceRequestController::class,'destroy'])
+            ->whereNumber('order');
+});
+
+    /**  инвентаризация  */
+    Route::get(   '/inventory-products',              [InventoryController::class,'index']);
+    Route::get(   '/inventory-products/{document}',   [InventoryController::class,'show'])->whereNumber('document');
+    Route::post(  '/inventory-products',              [InventoryController::class,'store']);
+    Route::put(   '/inventory-products/{document}',   [InventoryController::class,'update'])->whereNumber('document');
+    Route::delete('/inventory-products/{document}',   [InventoryController::class,'destroy'])->whereNumber('document');
 
 });

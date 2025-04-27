@@ -36,8 +36,8 @@ public function getWarehouseItems(Request $request)
     $result = [];
     foreach ($items as $whItem) {
         // Optionally grab product name from product_sub_cards
-        $product = DB::table('product_sub_cards')
-            ->where('id', $whItem->product_subcard_id)
+        $product = DB::table('reference_items')
+            ->where('id', $whItem->card_id)
             ->select('id','name')
             ->first();
 
@@ -77,7 +77,7 @@ public function getWarehouseItems(Request $request)
 
      public function getWarehouseDetails(Request $request)
     {
-        
+
         $productSubCards = ProductSubCard::all();
         $unitMeasurements = Unit_measurement::all();
         $providers = Provider::all();
@@ -94,5 +94,5 @@ public function getWarehouseItems(Request $request)
             'warehouseItems' => $warehouseItems,
         ]);
     }
-    
+
 }

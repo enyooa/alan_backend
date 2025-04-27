@@ -1,98 +1,97 @@
 <template>
-  <aside :class="['sidebar', { open: isSidebarOpen }]">
-    <!-- Sidebar Toggle Button -->
-    <button class="sidebar-toggle" @click="$emit('toggleSidebar')">
-      <i v-if="isSidebarOpen" class="pi pi-angle-double-left toggle-icon"></i>
-      <i v-else class="pi pi-angle-double-right toggle-icon"></i>
-    </button>
+    <aside :class="['sidebar', { closed: !isSidebarOpen }]">
+      <ul class="nav">
+        <li v-for="link in links" :key="link.key">
+          <!-- green “+” opens the animated panel -->
+          <button
+            v-if="link.openPanel"
+            class="nav-link"
+            @click="$emit('openPanel')"
+          >
+            <span class="icon-wrapper">
+              <i :class="['pi', link.icon]" />
+            </span>
+            <span class="label" v-if="isSidebarOpen">{{ link.label }}</span>
+          </button>
 
-    <!-- Sidebar Links -->
-    <ul>
-      <li v-for="(link, index) in links" :key="index">
-        <router-link :to="link.to" active-class="active-link">
-          <i :class="['pi', link.icon, 'menu-icon']"></i>
-          <span v-if="isSidebarOpen">{{ link.label }}</span>
-        </router-link>
-      </li>
-    </ul>
-  </aside>
-</template>
+          <!-- normal route links -->
+          <router-link
+            v-else
+            :to="link.to"
+            class="nav-link"
+            active-class="active-link"
+          >
+            <span class="icon-wrapper">
+              <i :class="['pi', link.icon]" />
+            </span>
+            <span class="label" v-if="isSidebarOpen">{{ link.label }}</span>
+          </router-link>
+        </li>
 
-<script>
-export default {
-  props: {
-    isSidebarOpen: Boolean,
-  },
-  data() {
-    return {
-      links: [
-        // { label: "Доступ", to: "/access", icon: "pi-home" },
-        { label: "Сотрудник", to: "/employees", icon: "pi-users" },
-        // { label: "Контрагенты", to: "/clients", icon: "pi-users" },
-        { label: "Справочник", to: "/product-cards", icon: "pi-box" },
-        { label: "Товары", to: "/receive", icon: "pi-shopping-cart" },
-        // { label: "История операции", to: "/operation-history", icon: "pi-file" },
-        //{ label: "Аккаунты", to: "/accounts", icon: "pi-id-card" },
-        { label: "Отчеты", to: "/reports", icon: "pi-chart-line" },
-        // { label: "Отчет по задолженности", to: "/client-debts", icon: "pi-money-bill" },
-        { label: "Карточки", to: "/test", icon: "test" },
-        { label: "Тарифный план", to: "/tariff-plan", icon: "pi-money" },
+        <li class="separator" aria-hidden="true" />
+      </ul>
+    </aside>
+  </template>
 
-      ],
-    };
-  },
-};
-</script>
+  <script>
+  export default {
+    name: "Sidebar",
+    props: { isSidebarOpen: Boolean },
+    data() {
+      return {
+        links: [
+          { key: "create",  label: "Создание\nдокумента", icon: "pi-plus", openPanel: true },
 
-<style scoped>
-.sidebar {
-  background-color: #0288d1;
-  color: white;
-  width: 250px;
-  transition: transform 0.3s ease-in-out;
-  transform: translateX(0);
-  padding: 20px;
-  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-}
-.sidebar.closed {
-  transform: translateX(-100%);
-}
-.sidebar ul {
-  list-style-type: none;
-  padding: 0;
-  margin: 0;
-}
-.sidebar li {
-  margin: 15px 0;
-}
-.sidebar a {
-  color: white;
-  text-decoration: none;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  padding: 10px;
-  border-radius: 5px;
-  transition: background-color 0.3s;
-}
-.sidebar a:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-.sidebar-toggle {
-  background: none;
-  border: none;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-}
-.menu-icon {
-  font-size: 18px;
-  margin-right: 10px;
-}
-.toggle-icon {
-  font-size: 18px;
-}
-</style>
+          { key: "cards",   label: "Справочник",    icon: "pi-info-circle", to: "/product-cards" },
+          { key: "reports", label: "Отчёты",        icon: "pi-file",        to: "/reports" },
+          { key: "workers", label: "Сотрудники",    icon: "pi-users",       to: "/employees" },
+          { key: "tariff",  label: "Тарифный план", icon: "pi-money-bill",  to: "/tariff-plan" },
+          { key: "receive", label: "Товары",        icon: "pi-shopping-cart", to: "/receive" },
+        ],
+      };
+    },
+  };
+  </script>
+
+  <style scoped>
+  /* neon gradient bar ---------------------------------------------------- */
+  .sidebar{
+    --from:#03b4de; --to:#6ec7db;
+    width:80px;height:100vh;
+    background:linear-gradient(var(--from),var(--to));
+    padding-top:24px;
+    display:flex;flex-direction:column;align-items:center;
+    color:#fff;transition:transform .3s;
+  }
+  .sidebar.closed{transform:translateX(-100%)}
+
+  /* list ----------------------------------------------------------------- */
+  .nav{list-style:none;margin:0;padding:0;width:100%}
+  .nav li{display:flex;justify-content:center;width:100%}
+
+  /* buttons / links ------------------------------------------------------ */
+  .nav-link{
+    display:flex;flex-direction:column;align-items:center;gap:6px;
+    padding:12px 0;color:#fff;text-decoration:none;font-size:13px;
+    line-height:1.1;transition:filter .2s;
+  }
+  .nav-link:hover,.active-link{filter:brightness(1.25)}
+
+  /* round neon icon ------------------------------------------------------ */
+  .icon-wrapper{
+    --sz:48px;width:var(--sz);height:var(--sz);border-radius:50%;
+    display:grid;place-items:center;background:rgba(255,255,255,.15);
+    border:2px solid #b7ff4e;transition:transform .2s;
+  }
+  .nav-link:hover .icon-wrapper{transform:scale(1.08)}
+  .icon-wrapper i{font-size:22px;color:#b7ff4e}
+
+  /* label */
+  .label{white-space:pre-line;text-align:center}
+
+  /* dotted line ---------------------------------------------------------- */
+  .separator{
+    width:40px;height:1px;border-bottom:1px dashed rgba(0,162,255,.6);
+    margin:26px auto 0;
+  }
+  </style>

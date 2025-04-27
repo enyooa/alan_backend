@@ -32,8 +32,12 @@ class DocumentItem extends Model
     }
 
     // ссылка на товар (если есть модель Item)
-    public function product()
+    public function product()          // ← раньше был ProductSubCard
     {
-        return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
+        return $this->belongsTo(ReferenceItem::class, 'product_subcard_id');
+    }
+    public function unitRef()
+    {
+        return $this->belongsTo(ReferenceItem::class, 'unit_measurement');
     }
 }

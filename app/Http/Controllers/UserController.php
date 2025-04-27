@@ -21,7 +21,10 @@ class UserController extends Controller
     //         $query->where('name', 'admin');
     //     })
     //     ->get();
-    $users = User::with('roles')->get();
+    $users = User::with([
+        'roles:id,name',             // только нужные поля
+        'permissions:id,name,code'   //   — // —
+    ])->get();
 
     return response()->json($users);
 }

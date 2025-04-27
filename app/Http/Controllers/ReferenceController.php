@@ -17,67 +17,135 @@ use Illuminate\Support\Facades\Validator;
 class ReferenceController extends Controller
 {
     public function index(): \Illuminate\Http\JsonResponse
-    {
-        $refs = Reference::with('items:id,reference_id,name,description,value,type,country')
+{
+    /* 1)  тянем items + их parent‑card, чтобы не было N+1   */
+    $refs = Reference::with([
+                'items:id,reference_id,card_id,name,description,value,type,country',
+                'items.card:id,name'                         // ← card‑объект
+            ])
             ->get()
-            ->map(fn($ref) => [
-                'id'            => $ref->id,
-                'title'         => $ref->title,
-                'created_at'    => $ref->created_at->toDateTimeString(),
-                'RefferenceItem'=> $ref->items->map(fn($item) => [
-                    'id'            => $item->id,
-                    'reference_id'  => $item->reference_id,
-                    'name'          => $item->name,
-                    'description'   => $item->description,
-                    'value'         => $item->value,
-                    'type'          => $item->type,
-                    'country'       => $item->country,
+            ->map(fn ($ref) => [
+                'id'         => $ref->id,
+                'title'      => $ref->title,
+                'created_at' => $ref->created_at->toDateTimeString(),
+
+                /* ---------- вложенные ReferenceItem‑ы ---------- */
+                'RefferenceItem' => $ref->items->map(fn ($item) => [
+                    'id'           => $item->id,
+                    'reference_id' => $item->reference_id,
+
+                    // 👇 вместо голого card_id — объект‑карточка
+                    'card' => $item->card
+                         ? [
+                               'id'   => $item->card->id,
+                               'name' => $item->card->name,
+                           ]
+                         : null,
+
+                    'name'        => $item->name,
+                    'description' => $item->description,
+                    'value'       => $item->value,
+                    'type'        => $item->type,
+                    'country'     => $item->country,
                 ]),
             ]);
 
-        return response()->json(['refferences' => $refs]);
+    return response()->json(['refferences' => $refs], 200);
+}
+
+public function storeWithItems(Request $request): \Illuminate\Http\JsonResponse
+{
+    Log::info($request->all());
+    /* 1. Получаем тело запроса */
+    $payload = $request->input('refference')            // ← новый фронт
+             ?? $request->all();                       // ← старый фронт
+
+    if (!$payload) {
+        return response()->json(
+            ['error' => 'Missing “refference” wrapper or body is empty.'],
+            422
+        );
     }
 
-    public function storeWithItems(Request $request): \Illuminate\Http\JsonResponse
-    {
-        Log::info($request->all());
+    /* 2. Валидация
+     *    – принимаем оба ключа  items  и  RefferenceItem
+     *    – value → string  (чистим позже) */
+    $validator = Validator::make($payload, [
+        'title'   => ['required', 'string'],
 
-        $validated = $request->validate([
-            'title'   => ['required','string'],
-            'card_id' => ['nullable','integer'],
-            'items'               => ['array'],
-            'items.*.name'        => ['required_with:items','string'],
-            'items.*.description' => ['nullable','string'],
-            'items.*.value'       => ['nullable','numeric'],
-            'items.*.type'        => ['nullable','string'],
-            'items.*.country'     => ['nullable','string'],
-        ]);
+        'items'                       => ['array'],
+        'items.*.card_id'             => ['sometimes', 'nullable', 'integer'],
+        'items.*.name'                => ['required_with:items', 'string'],
+        'items.*.description'         => ['nullable', 'string'],
+        'items.*.value'               => ['nullable', 'string'],
+        'items.*.type'                => ['nullable', 'string'],
+        'items.*.country'             => ['nullable', 'string'],
 
-        $reference = DB::transaction(function () use ($validated) {
-            $ref = Reference::create([
-                'title'   => $validated['title'],
-                'card_id' => $validated['card_id'] ?? null,
-            ]);
-
-            if (!empty($validated['items'])) {
-                $ref->items()->createMany($validated['items']);
-            }
-
-            return $ref->load('items');
-        });
-
-        return response()->json(['refference' => $this->formatReference($reference)], 201);
+        'RefferenceItem'              => ['array'],
+        'RefferenceItem.*.card_id'    => ['sometimes', 'nullable', 'integer'],
+        'RefferenceItem.*.name'       => ['required_with:RefferenceItem', 'string'],
+        'RefferenceItem.*.description'=> ['nullable', 'string'],
+        'RefferenceItem.*.value'      => ['nullable', 'string'],
+        'RefferenceItem.*.type'       => ['nullable', 'string'],
+        'RefferenceItem.*.country'    => ['nullable', 'string'],
+    ]);
+    if ($validator->fails()) {
+        return response()->json($validator->errors(), 422);
     }
+
+    $data  = $validator->validated();
+    $items = $payload['RefferenceItem']
+          ?? $payload['items']
+          ?? [];
+
+    /* 3. Транзакция */
+    $reference = DB::transaction(function () use ($data, $items) {
+
+        /** @var \App\Models\Reference $ref */
+        $ref = Reference::create(['title' => $data['title']]);
+
+        foreach ($items as $item) {
+            $ref->items()->create($this->cleanItem($item));
+        }
+
+        return $ref->fresh('items');
+    });
+
+    /* 4. Ответ */
+    return response()->json(
+        ['refference' => $this->formatReference($reference)],
+        201
+    );
+}
+
+/** Убираем "NaN", пустые строки и т. п. */
+private function cleanItem(array $item): array
+{
+    $value = $item['value'] ?? null;
+    if (!is_numeric($value)) {
+        $value = null;
+    }
+
+    return [
+        'card_id'     => $item['card_id']     ?? null,
+        'name'        => $item['name'],
+        'description' => $item['description'] ?? null,
+        'value'       => $value,
+        'type'        => $item['type']        ?? null,
+        'country'     => $item['country']     ?? null,
+    ];
+}
+
     public function updateWithItems(Request $request, int $id): \Illuminate\Http\JsonResponse
     {
         $ref = Reference::with('items')->findOrFail($id);
 
         $validated = $request->validate([
             'title'   => ['required','string'],
-            'card_id' => ['nullable','integer'],
-
             'items'                   => ['array'],
             'items.*.id'              => ['sometimes','integer'],
+            'items.*.card_id' => ['nullable','integer'],
+
             'items.*.name'            => ['required_with:items','string'],
             'items.*.description'     => ['nullable','string'],
             'items.*.value'           => ['nullable','numeric'],
@@ -91,13 +159,13 @@ class ReferenceController extends Controller
         DB::transaction(function () use ($ref, $validated) {
             $ref->update([
                 'title'   => $validated['title'],
-                'card_id' => $validated['card_id'] ?? $ref->card_id,
             ]);
 
             foreach ($validated['items'] ?? [] as $item) {
                 $ref->items()->updateOrCreate(
                     ['id' => $item['id'] ?? null],
                     [
+                        'card_id'     => $item['card_id'],
                         'name'        => $item['name'],
                         'description' => $item['description'] ?? null,
                         'value'       => $item['value'] ?? null,
@@ -207,6 +275,7 @@ class ReferenceController extends Controller
         }
     }
     // 1) Fetch data by type
+    // старая ветка
     public function fetch($type)
     {
         try {
@@ -247,6 +316,51 @@ class ReferenceController extends Controller
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
+    // старая ветка
+
+    public function getReferencesByType(string $type): \Illuminate\Http\JsonResponse
+{
+    /* -------------------------------------------------
+     | 1)  Нормализуем «человекочитаемый» type → title
+     |     (если нужно, добавьте свои alias’ы)
+     * -----------------------------------------------*/
+    $map = [
+        // url‑параметр       =>  title в таблице references
+        'unit'              => 'Единица измерения',
+        'provider'          => 'Поставщик',
+        'address'           => 'Адрес',
+        'expense'           => 'Расход',
+        'income'            => 'Приход',
+        'product-card'      => 'Карточка товара',
+        'product-subcard'   => 'Подкарточка товара',
+    ];
+
+    if (!isset($map[$type])) {
+        return response()->json(
+            ['error' => "Unknown reference type: $type"],
+            404
+        );
+    }
+
+    $title = $map[$type];
+
+    /* -------------------------------------------------
+     | 2)  Тянем саму карточку + все строки‑items
+     * -----------------------------------------------*/
+    $reference = Reference::where('title', $title)
+        ->with('items:id,reference_id,card_id,name,description,value,type,country')
+        ->orderBy('id')                 // несколько одинаковых карточек — по id
+        ->get()
+        ->map(fn ($ref) => $this->formatReference($ref));
+
+    /* -------------------------------------------------
+     | 3)  Ответ
+     * -----------------------------------------------*/
+    return response()->json([
+        'refferences' => $reference      // ← оставили старое имя ключа
+    ]);
+}
+
 
     public function fetchOne($type, $id)
 {
@@ -286,63 +400,81 @@ class ReferenceController extends Controller
 
     // 2) Unified update method (PATCH)
     public function update(Request $request, int $id): \Illuminate\Http\JsonResponse
-    {
-        $payload = $request->input('refference');
-        if (!$payload) {
-            return response()->json(['error' => 'Missing “refference” wrapper'], 422);
+{
+    $payload = $request->input('refference');
+    if (!$payload) {
+        return response()->json(['error' => 'Missing “refference” wrapper'], 422);
+    }
+
+    /* ---------- 1.  validate ---------- */
+    $validator = Validator::make($payload, [
+        'title'   => ['required','string'],
+
+        'RefferenceItem'                  => ['array'],
+        'RefferenceItem.*.id'             => ['sometimes','integer'],
+
+        //  ❱❱  mark card_id as sometimes|nullable|integer
+        'RefferenceItem.*.card_id'        => ['sometimes','nullable','integer'],
+
+        'RefferenceItem.*.name'           => ['required_with:RefferenceItem','string'],
+        'RefferenceItem.*.description'    => ['nullable','string'],
+        'RefferenceItem.*.value'       => ['nullable','string'],
+        'RefferenceItem.*.type'           => ['nullable','string'],
+        'RefferenceItem.*.country'        => ['nullable','string'],
+
+        'deleted_item_ids'                => ['array'],
+        'deleted_item_ids.*'              => ['integer'],
+    ]);
+    if ($validator->fails()) {
+        return response()->json($validator->errors(), 422);
+    }
+
+    $data        = $validator->validated();
+    $items       = $data['RefferenceItem']   ?? [];
+    $idsToDelete = $data['deleted_item_ids'] ?? [];
+
+    /* ---------- 2.  write atomically ---------- */
+    $reference = DB::transaction(function () use ($id, $data, $items, $idsToDelete) {
+
+        $ref = Reference::with('items')->findOrFail($id);
+
+        /* parent */
+        $ref->update([
+            'title' => $data['title'],
+        ]);
+
+        /* children (upsert) */
+        foreach ($items as $item) {
+            $cleanValue = is_numeric($item['value'] ?? null)
+                ? (float) $item['value']
+                : null;
+
+            $ref->items()->updateOrCreate(
+                ['id' => $item['id'] ?? null],   // match on id if given
+                [
+                    'card_id'     => $item['card_id']     ?? null,   // ← safe
+                    'name'        => $item['name'],
+                    'description' => $item['description'] ?? null,
+                    'value'       => $cleanValue       ?? null,
+                    'type'        => $item['type']        ?? null,
+                    'country'     => $item['country']     ?? null,
+                ]
+            );
         }
 
-        $validator = Validator::make($payload, [
-            'title'   => ['required','string'],
-            'card_id' => ['nullable','integer'],
+        /* deletes */
+        if ($idsToDelete) {
+            $ref->items()->whereIn('id', $idsToDelete)->delete();
+        }
 
-            'RefferenceItem'                => ['array'],
-            'RefferenceItem.*.id'           => ['sometimes','integer'],
-            'RefferenceItem.*.name'         => ['required_with:RefferenceItem','string'],
-            'RefferenceItem.*.description'  => ['nullable','string'],
-            'RefferenceItem.*.value'        => ['nullable','numeric'],
-            'RefferenceItem.*.type'         => ['nullable','string'],
-            'RefferenceItem.*.country'      => ['nullable','string'],
+        return $ref->fresh('items');
+    });
 
-            'deleted_item_ids'              => ['array'],
-            'deleted_item_ids.*'            => ['integer'],
-        ]);
-        if ($validator->fails()) return response()->json($validator->errors(),422);
-
-        $data        = $validator->validated();
-        $items       = $data['RefferenceItem']   ?? [];
-        $idsToDelete = $data['deleted_item_ids'] ?? [];
-
-        $reference = DB::transaction(function () use ($id, $data, $items, $idsToDelete) {
-            $ref = Reference::with('items')->findOrFail($id);
-
-            $ref->update([
-                'title'   => $data['title'],
-                'card_id' => $data['card_id'] ?? $ref->card_id,
-            ]);
-
-            foreach ($items as $item) {
-                $ref->items()->updateOrCreate(
-                    ['id' => $item['id'] ?? null],
-                    [
-                        'name'        => $item['name'],
-                        'description' => $item['description'] ?? null,
-                        'value'       => $item['value'] ?? null,
-                        'type'        => $item['type'] ?? null,
-                        'country'     => $item['country'] ?? null,
-                    ]
-                );
-            }
-
-            if ($idsToDelete) {
-                $ref->items()->whereIn('id', $idsToDelete)->delete();
-            }
-
-            return $ref->fresh('items');
-        });
-
-        return response()->json(['refference' => $this->formatReference($reference)]);
-    }
+    /* ---------- 3.  response ---------- */
+    return response()->json([
+        'refference' => $this->formatReference($reference)
+    ]);
+}
 
     // 3) Destroy method (DELETE)
     public function destroy(Request $request, int $id): \Illuminate\Http\JsonResponse
@@ -374,6 +506,7 @@ class ReferenceController extends Controller
             'created_at' => $ref->created_at->toDateTimeString(),
             'RefferenceItem' => $ref->items->map(fn($item) => [
                 'id'            => $item->id,
+                'card_id'       => $item->card_id,
                 'reference_id'  => $item->reference_id,
                 'name'          => $item->name,
                 'description'   => $item->description,

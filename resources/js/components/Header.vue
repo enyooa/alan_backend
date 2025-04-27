@@ -1,98 +1,120 @@
+<!-- src/components/Header.vue -->
 <template>
-   <header class="header">
-      <h1>Админ Панель</h1>
+    <header class="header">
+      <h1 class="app-title">Админ Панель</h1>
+
       <div class="user-info">
-         Добро пожаловать, <span class="user-name">{{ user ? user.first_name : "Пользователь" }}!</span>
-         <button class="logout-btn" @click="logout">🚪 Выйти</button>
+        <span class="greeting">
+          Добро пожаловать,
+          <strong class="user-name">{{ user ? user.first_name : 'Пользователь' }}</strong>!
+        </span>
+
+        <!-- Кнопка выхода -->
+        <button class="logout-btn" @click="logout">🚪 Выйти</button>
       </div>
-   </header>
-</template>
+    </header>
+  </template>
 
-<script>
-// Header.vue (Logout functionality)
-import axios from "axios";
+  <script>
+  import axios from 'axios';
 
-export default {
-  data() {
-    return {
-      user: null,
-    };
-  },
-  async created() {
-    await this.fetchUserData();
-  },
-  methods: {
-    async fetchUserData() {
-      try {
-        const response = await axios.get("/api/user");
-        this.user = response.data;
-      } catch (error) {
-        console.error("Ошибка загрузки пользователя", error);
-      }
+  export default {
+    name: 'Header',
+    data() {
+      return { user: null };
     },
-    // In your logout method (Header.vue)
-async logout() {
-   try {
-      const token = localStorage.getItem("token");
-      console.log("here is "+token);
-      if (token) {
-         axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      }
+    async created() {
+      await this.fetchUserData();
+    },
+    methods: {
+      async fetchUserData() {
+        try {
+          const { data } = await axios.get('/api/user');
+          this.user = data;
+        } catch (e) {
+          console.error('Ошибка загрузки пользователя', e);
+        }
+      },
+      async logout() {
+        try {
+          const token = localStorage.getItem('token');
+          if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
-      await axios.post("/api/logout"); // Call logout endpoint
+          await axios.post('/api/logout');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          delete axios.defaults.headers.common.Authorization;
 
-      // Remove token and user data
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
+          this.$router.replace('/login').then(() => window.location.reload());
+        } catch (e) {
+          console.error('❌ Ошибка выхода', e);
+        }
+      },
+    },
+  };
+  </script>
 
-      // Clear the Authorization header
-      delete axios.defaults.headers.common["Authorization"];
+  <style scoped>
+  /* ------------------------------------------------------------------
+     КЛЮЧЕВОЕ: объявляем переменные ГРАДИЕНТА прямо здесь, в .header
+  -------------------------------------------------------------------*/
+  .header {
+    /* локальные CSS-переменные — доступны только внутри компонента */
+    --grad-from: #07bcd7;
+    --grad-to:   #6fc6da;
 
-      // Redirect to login page
-      this.$router.replace("/login").then(() => window.location.reload());
-   } catch (error) {
-      console.error("❌ Ошибка выхода", error);
-   }
-}
-,
-  },
-};
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 
-</script>
+    padding: 14px 24px;
+    color: #fff;
 
-<style scoped>
-.header {
-   display: flex;
-   justify-content: space-between;
-   align-items: center;
-   padding: 15px 20px;
-   background-color: #0288d1;
-   color: white;
-   box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
-}
-.header h1 {
-   font-size: 24px;
-   font-weight: 600;
-   margin: 0;
-}
-.user-info {
-   display: flex;
-   align-items: center;
-   gap: 10px;
-}
-.user-name {
-   font-weight: bold;
-}
-.logout-btn {
-   padding: 10px 15px;
-   background-color: #b00020;
-   color: white;
-   border: none;
-   border-radius: 5px;
-   font-size: 14px;
-   cursor: pointer;
-}
-.logout-btn:hover {
-   background-color: #b71c1c;
-}
-</style>
+    background: linear-gradient(90deg, var(--grad-from), var(--grad-to));
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+  }
+
+  /* название приложения */
+  .app-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  /* блок «Добро пожаловать … Выйти» */
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .greeting {
+    font-size: 14px;
+  }
+
+  .user-name {
+    font-weight: 600;
+  }
+
+  /* кнопка выхода */
+  .logout-btn {
+    padding: 8px 20px;
+    font-size: 14px;
+    cursor: pointer;
+
+    border: none;
+    border-radius: 28px;
+
+    /* тот же приём с локальными переменными, чтобы не конфликтовать */
+    --btn-from: #c0fb63;
+    --btn-to:   #72953b;
+    background: linear-gradient(90deg, var(--btn-from), var(--btn-to));
+
+    color: #fff;
+    transition: filter 0.2s;
+  }
+
+  .logout-btn:hover {
+    filter: brightness(0.93);
+  }
+  </style>
