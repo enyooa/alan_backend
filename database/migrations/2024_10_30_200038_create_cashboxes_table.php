@@ -15,7 +15,11 @@ class CreateCashboxesTable extends Migration
     {
         // касса
         Schema::create('cashboxes', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name_of_income')->nullable();
             $table->string('name_of_expense')->nullable();
             $table->double('amount_of_expense');

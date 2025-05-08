@@ -9,19 +9,22 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('permission_user', function (Blueprint $table) {
-            $table->id();
+            // if you still want a surrogate PK:
+            $table->uuid('id')->primary();
 
-            $table->foreignId('user_id')
-                  ->constrained()
+            // ↓ use foreignUuid() instead of foreignId()
+            $table->foreignUuid('user_id')
+                  ->constrained('users')
                   ->cascadeOnDelete();
 
-            $table->foreignId('permission_id')
-                  ->constrained()
+            $table->foreignUuid('permission_id')
+                  ->constrained('permissions')
                   ->cascadeOnDelete();
 
             $table->timestamps();
 
-            $table->unique(['user_id', 'permission_id']);   // один раз на пару
+            // ensure uniqueness
+            $table->unique(['user_id', 'permission_id']);
         });
     }
 

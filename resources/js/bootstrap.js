@@ -14,6 +14,7 @@ window.axios = require('axios');
 // window.axios.defaults.baseURL = '/api'; // Set API base URL
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+require('./plugins/axios');   // ⬅️ ДОБАВИЛИ одну строку
 
 /**
  * Echo exposes an expressive API for subscribing to channels and listening

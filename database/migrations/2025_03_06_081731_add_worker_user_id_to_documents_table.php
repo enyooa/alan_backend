@@ -9,13 +9,15 @@ class AddWorkerUserIdToDocumentsTable extends Migration
     {
         Schema::table('documents', function (Blueprint $table) {
             // Добавляем столбец worker_user_id
-            $table->unsignedBigInteger('worker_user_id')->nullable()->after('id');
-
+            $table->foreignUuid('worker_user_id')        // ← instead of unsignedBigInteger
+            ->nullable()
+            ->constrained('users')
+            ->nullOnDelete();
             // Опционально добавляем внешний ключ
-            $table->foreign('worker_user_id')
-                  ->references('id')->on('users')
-                  ->onDelete('set null'); 
-                  // или ->nullOnDelete(); 
+            // $table->foreign('worker_user_id')
+            //       ->references('id')->on('users')
+            //       ->onDelete('set null');
+                  // или ->nullOnDelete();
                   // (выберите нужное вам поведение при удалении пользователя)
         });
     }

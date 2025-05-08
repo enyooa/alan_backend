@@ -9,6 +9,11 @@
           <strong class="user-name">{{ user ? user.first_name : 'Пользователь' }}</strong>!
         </span>
 
+        <!-- ───── новый блок тарифа ───── -->
+        <span class="tariff">
+          Ваш тариф: <strong>Оптовик</strong>
+        </span>
+
         <!-- Кнопка выхода -->
         <button class="logout-btn" @click="logout">🚪 Выйти</button>
       </div>
@@ -116,5 +121,12 @@
 
   .logout-btn:hover {
     filter: brightness(0.93);
+  }
+
+  .tariff {
+    margin: 0 6px;
+    font-size: 14px;
+    color: #e7f8ff;
+    white-space: nowrap;
   }
   </style>

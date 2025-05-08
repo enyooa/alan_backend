@@ -5,27 +5,25 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
+class AddWarehouseIdToPriceOfferOrdersTable extends Migration
 {
     public function up(): void
     {
         Schema::table('price_offer_orders', function (Blueprint $table) {
-            $table->unsignedBigInteger('warehouse_id')
-                  ->nullable()                 // drop “nullable()” if it must always be present
-                  ->after('address_id');
-
-            $table->foreign('warehouse_id')
-                  ->references('id')
-                  ->on('warehouses')
-                  ->cascadeOnDelete();         // or ->restrictOnDelete()
+            // Add a nullable UUID column, constraint it to warehouses.id, cascade on delete
+            $table->foreignUuid('warehouse_id')
+                  ->nullable()
+                  ->after('address_id')
+                  ->constrained('warehouses')
+                  ->cascadeOnDelete();
         });
     }
 
     public function down(): void
     {
         Schema::table('price_offer_orders', function (Blueprint $table) {
-            $table->dropForeign(['warehouse_id']);
-            $table->dropColumn('warehouse_id');
+            // This helper drops both the FK and the column
+            $table->dropConstrainedForeignId('warehouse_id');
         });
     }
-};
+}

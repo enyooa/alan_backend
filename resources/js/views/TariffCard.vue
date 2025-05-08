@@ -1,108 +1,112 @@
 <template>
-    <div class="card" :class="{ current: isCurrent, popular: plan.popular }">
-      <!-- Card header -->
-      <header class="card-head">
-        <h3 class="plan-name">
-          {{ plan.name }}
-          <span v-if="plan.popular" class="star">★</span>
-        </h3>
+    <div :class="['tariff-card', { popular: plan.popular, current: isCurrent }]">
+      <div class="head">
+        <h3 class="name">{{ plan.name }}</h3>
+        <span v-if="plan.popular" class="badge">Популярный</span>
+      </div>
 
-        <p class="price">
-          <span class="val">
-            {{ plan.price > 0 ? plan.price.toLocaleString('ru-RU') : '0' }}
-          </span>
-          <span class="period">₸/М</span>
-        </p>
-      </header>
+      <p class="price">
+        <strong v-if="plan.price">{{ plan.price.toLocaleString() }} ₸</strong>
+        <strong v-else>Бесплатно</strong>
+        <small v-if="!plan.price"> / навсегда</small>
+      </p>
 
-      <!-- Services -->
-      <ul class="service-list">
-        <li v-for="s in plan.services" :key="s">{{ s }}</li>
+      <ul class="services">
+        <li v-for="s in plan.services" :key="s">
+          <i class="pi pi-check" /> {{ s }}
+        </li>
       </ul>
 
-      <!-- Action -->
       <button
-        v-if="canSelect"
-        class="main-btn"
+        v-if="plan.price === 0 && !isCurrent"
+        class="btn select"
         @click="$emit('select', plan)"
       >
-        ➡️ Выбрать
+        Выбрать
       </button>
 
       <button
-        v-else-if="canPay"
-        class="main-btn"
+        v-else-if="plan.price && !isCurrent"
+        class="btn pay"
         @click="$emit('pay', plan)"
       >
-        💳 Оплатить
+        Оплатить
       </button>
 
-      <p v-else class="paid-label">Оплачено</p>
+      <span v-else class="current-label">Ваш тариф</span>
     </div>
   </template>
 
-  <script setup>
-  import { computed } from 'vue';
-
-  const props = defineProps({
-    plan: { type: Object, required: true },
-    isCurrent: { type: Boolean, default: false },
-  });
-
-  const canSelect = computed(() => props.plan.price === 0 && !props.isCurrent);
-  const canPay    = computed(() => props.plan.price > 0  && !props.isCurrent);
+  <script>
+  export default {
+    name: 'TariffCard',
+    props: {
+      plan:       { type: Object, required: true },
+      isCurrent:  { type: Boolean, default: false },
+    },
+  };
   </script>
 
-  <style scoped>
-  .card {
-    width: 220px;
-    padding: 18px 20px 24px;
-    background: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    transition: transform .2s;
+  <style>
+  .tariff-card{
+    width:260px;
+    padding:24px 20px;
+    border-radius:16px;
+    background:var(--glass-bg);
+    backdrop-filter:var(--glass-blur);
+    box-shadow:0 12px 20px rgba(0,0,0,.06);
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    transition:transform .25s;
   }
-  .card:hover { transform: translateY(-4px); }
+  .tariff-card:hover{ transform:translateY(-4px); }
 
-  .card.popular { border: 2px solid #00bcd4; }
-  .card.current { border: 2px solid #4caf50; }
-
-  .plan-name {
-    font-size: 20px;
-    margin: 0 0 6px;
-    text-align: center;
-    color: #333;
-  }
-  .star { color: #00bcd4; margin-left: 4px; }
-
-  .price   { font-size: 22px; font-weight: 700; margin: 0 0 12px; color: #333; }
-  .period  { font-size: 14px; font-weight: 400; }
-
-  .service-list {
-    flex: 1;
-    padding: 0;
-    margin: 0 0 16px;
-    list-style: none;
-    font-size: 13px;
-    color: #0d8abf;
-    line-height: 1.35;
+  /* header */
+  .head{ display:flex; justify-content:space-between; align-items:center; }
+  .name{ font-size:20px; font-weight:700; margin:0; }
+  .badge{
+    background:var(--brand-from);
+    color:#fff; font-size:12px; padding:4px 8px; border-radius:12px;
   }
 
-  .main-btn {
-    width: 100%;
-    padding: 10px 0;
-    background: #00bcd4;
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    font-size: 15px;
-    cursor: pointer;
-    transition: background .3s;
+  /* price */
+  .price{
+    font-size:24px; font-weight:700; margin:20px 0 16px;
+    color:var(--brand-from);
   }
-  .main-btn:hover { background: #0097a7; }
 
-  .paid-label { color: #4caf50; font-weight: 600; }
+  /* services */
+  .services{
+    flex:1;
+    list-style:none; padding:0; margin:0 0 20px;
+    font-size:14px; color:#333;
+  }
+  .services li{ margin-bottom:6px; display:flex; align-items:center; }
+  .services i{ font-size:12px; margin-right:6px; color:var(--brand-from); }
+
+  /* buttons */
+  .btn{
+    width:100%;
+    padding:10px 0;
+    font-size:14px;
+    border:none; border-radius:24px;
+    color:#fff; cursor:pointer; transition:filter .2s;
+  }
+  .btn.select{ background:var(--brand-from); }
+  .btn.pay{    background:var(--c1, #7ebf52); }
+  .btn:hover{ filter:brightness(.9); }
+
+  /* current plan label */
+  .current-label{
+    display:inline-block;
+    text-align:center;
+    font-size:14px;
+    color:#fff;
+    background:var(--brand-to);
+    padding:8px 0;
+    border-radius:24px;
+  }
+  .current{ border:2px solid var(--brand-from); }
+  .popular{ box-shadow:0 0 0 3px var(--brand-from); }
   </style>

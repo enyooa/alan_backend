@@ -4,11 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class DocumentItem extends Model
 {
     use HasFactory;
-
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     protected $table = 'document_items';
 
     protected $fillable = [
@@ -32,12 +42,20 @@ class DocumentItem extends Model
     }
 
     // ссылка на товар (если есть модель Item)
-    public function product()          // ← раньше был ProductSubCard
+
+    public function unit()      { return $this->belongsTo(Unit_measurement::class, 'unit_measurement_id'); }
+
+    public function product()
     {
-        return $this->belongsTo(ReferenceItem::class, 'product_subcard_id');
+        return $this->belongsTo(ProductSubCard::class,
+                                'product_subcard_id')
+                    ->select('id','name','product_card_id');
     }
-    public function unitRef()
+    public function unitByName()
     {
-        return $this->belongsTo(ReferenceItem::class, 'unit_measurement');
+        return $this->belongsTo(Unit_measurement::class,
+                                'unit_measurement',    // local key
+                                'name',                // owner key
+                                'unit');               // relation name
     }
 }

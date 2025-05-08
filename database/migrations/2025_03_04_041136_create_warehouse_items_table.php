@@ -14,10 +14,13 @@ class CreateWarehouseItemsTable extends Migration
     public function up()
     {
         Schema::create('warehouse_items', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('warehouse_id');
-            $table->unsignedBigInteger('product_subcard_id')->nullable();
-            
+            $table->uuid('id')->primary();
+            $table->foreignUuid('warehouse_id')
+            ->constrained('warehouses')
+            ->cascadeOnDelete();            // вместо admin_warehouses.* , теперь:
+            $table->foreignUuid('product_subcard_id')
+            ->constrained('product_sub_cards')
+            ->cascadeOnDelete();
             $table->string('unit_measurement')->nullable();
             $table->decimal('quantity', 15, 3)->default(0);
             $table->decimal('brutto', 15, 3)->default(0);
@@ -28,8 +31,8 @@ class CreateWarehouseItemsTable extends Migration
             $table->decimal('cost_price', 15, 2)->default(0);
 
             // foreign
-            $table->foreign('warehouse_id')->references('id')->on('warehouses')->cascadeOnDelete();
-            // product_subcard_id -> product_subcards.id ? 
+            // $table->foreign('warehouse_id')->references('id')->on('warehouses')->cascadeOnDelete();
+            // product_subcard_id -> product_subcards.id ?
             // $table->foreign('product_subcard_id')->references('id')->on('product_subcards');
             $table->timestamps();
         });

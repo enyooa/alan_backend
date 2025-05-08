@@ -4,10 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class OrderItem extends Model
 {
     use HasFactory;
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     protected $fillable = [
         'order_id',
         'packer_quantity',
@@ -33,14 +44,5 @@ public function source()
     return $this->morphTo(null, 'source_table', 'source_table_id');
 }
 
-public function packerDocument()
-{
-    return $this->belongsTo(PackerDocument::class, 'packer_document_id');
-}
-
-public function courierDocument()
-{
-    return $this->belongsTo(CourierDocument::class, 'courier_document_id');
-}
 
 }

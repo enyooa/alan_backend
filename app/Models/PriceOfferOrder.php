@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;  // ← import Str
 
 class PriceOfferOrder extends Model
 {
@@ -15,12 +16,21 @@ class PriceOfferOrder extends Model
         'client_id',
         'address_id',
         'warehouse_id',
-
+'organization_id',
         'start_date',
         'end_date',
         'totalsum'
     ];
-
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     /**
      * Relationship to PriceOffer (HEAD version).
      */
@@ -50,4 +60,9 @@ class PriceOfferOrder extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+    public function organization()
+{
+    return $this->belongsTo(Organization::class);
+}
+
 }

@@ -43,6 +43,8 @@ class Kernel extends HttpKernel
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             'throttle:api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            \App\Http\Middleware\EnsurePlanIsActive::class,
+
         ],
     ];
 
@@ -54,7 +56,7 @@ class Kernel extends HttpKernel
      * @var array<string, class-string|string>
      */
     protected $routeMiddleware = [
-        
+
         'role' => \App\Http\Middleware\Roles::class,
         // 'client' => \App\Http\Middleware\Roles::class, // Ensure this alias points to the correct class
 

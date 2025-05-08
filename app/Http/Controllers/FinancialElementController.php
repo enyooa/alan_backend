@@ -31,21 +31,57 @@ class FinancialElementController extends Controller
 
 
     public function store(Request $request)
-    {
-        $request->validate([
-            'name'    => 'required|string|max:255',
-            'type'    => 'required|string|in:income,expense',
-            'role_id' => 'required|integer|exists:roles,id',
-        ]);
+{
+    Log::info($request);
+    // 1) Validate payload (role_id no longer required in input)
+    $request->validate([
+        'name' => 'required|string|max:255',
+        'type' => 'required|string|in:income,expense',
+    ]);
 
-        // Create a new FinancialElement including the role_id
-        // Make sure 'role_id' is in $fillable on the FinancialElement model
-        $element = FinancialElement::create($request->all());
+    // 2) Grab the first role the current user holds
+    $user     = Auth::user();
+    $role     = $user->roles()->first();   // or ->wherePivot(...)->first() etc.
 
-        return response()->json($element, 201);
+    if (!$role) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Current user has no role; cannot create financial element.'
+        ], 422);
     }
 
+    // 3) Merge role_id into the data we will persist
+    $data = $request->only(['name', 'type']);
+    $data['role_id'] = $role->id;
 
+    // 4) Persist
+    $element = FinancialElement::create($data);
+
+    return response()->json($element, 201);
+}
+
+public function update(Request $request, FinancialElement $element)
+    {
+
+
+        $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'type' => 'sometimes|required|string|in:income,expense',
+        ]);
+
+        $element->update($request->only(['name', 'type']));
+
+        return response()->json($element);      // 200 OK
+    }
+
+    /* ─────────────────────────  DELETE  ───────────────────────── */
+    public function delete(FinancialElement $element)
+    {
+
+        $element->delete();
+
+        return response()->json(null, 204);     // No Content
+    }
     /**
  * PATCH /api/financial-orders/{id}
  */
@@ -61,7 +97,7 @@ public function updateFinancialOrder(Request $request, int $id)
         'summary_cash'          => 'sometimes|required|integer',
         'date_of_check'         => 'sometimes|nullable|date',
 
-        'counterparty_id'       => 'sometimes|required|integer',
+        'counterparty_id'       => 'sometimes|required|uuid',
         'counterparty_type'     => 'sometimes|required|string|in:client,provider',
 
         // файл – опционально
@@ -294,7 +330,7 @@ public function updateFinancialOrder(Request $request, int $id)
             'date_of_check'      => 'required|date',
 
             // 2) The combined field:
-            'counterparty_id'    => 'required|integer',
+            'counterparty_id'    => 'required|uuid',
             'counterparty_type'  => 'required|string|in:client,provider',
         ]);
 
@@ -322,7 +358,7 @@ public function updateFinancialOrder(Request $request, int $id)
         $financialOrder->financial_element_id = $request->financial_element_id;
         $financialOrder->summary_cash = $request->summary_cash;
         $financialOrder->date_of_check = $request->date_of_check;
-
+        $financialOrder->auth_user_id = $request->user()->id;
         // store user_id or provider_id
         $financialOrder->user_id = $userId;
         $financialOrder->provider_id = $providerId;

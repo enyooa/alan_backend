@@ -15,13 +15,18 @@ class CreateOrderStatusLogsTable extends Migration
     public function up()
     {
         Schema::create('order_status_logs', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
+            $table->foreignUuid('order_id')
+            ->constrained('orders')
+            ->cascadeOnDelete();
             $table->string('status'); // Status at this point
             $table->text('remarks')->nullable(); // Optional remarks for status change
             $table->timestamp('changed_at')->default(DB::raw('CURRENT_TIMESTAMP'));
-        
-            $table->foreign('order_id')->references('id')->on('orders')->onDelete('cascade');
+
         });
     }
 

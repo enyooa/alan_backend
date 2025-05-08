@@ -8,9 +8,11 @@ use App\Models\FinancialOrder;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductCard;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-
+use App\Models\StatusDoc;
 class ClientController extends Controller
 {
 
@@ -51,33 +53,90 @@ class ClientController extends Controller
 
 
     public function getClientOrders()
-    {
-        $user = Auth::user(); // The currently authenticated user
+{
+    $user = Auth::user();                              // текущий клиент
 
-        // 1) Fetch only the orders belonging to this client
-        // 2) Eager-load 'orderItems.productSubCard' (or 'orderProducts') to get item details
-        // 3) Return them as JSON
-        $orders = Order::where('user_id', $user->id)
-            ->with(['orderItems.productSubCard'])
-            ->get();
+    /* 1. находим UUID статуса «ожидание» один раз  */
+    $waitingStatusId = StatusDoc::where('name', 'ожидание')
+                        ->value('id');                 // вернёт null, если статуса нет
 
-        return response()->json($orders, 200);
+    if (!$waitingStatusId) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'Статус «ожидание» не найден в таблице status_docs',
+        ], 500);
     }
 
-    public function report_debs()
-{
-    $userId = Auth::id(); // current authenticated user ID
+    /* 2. выбираем **только** заказы этого клиента и с нужным статусом  */
+    $orders = Order::where('user_id', $user->id)
+        ->where('status_id', $waitingStatusId)        // ← фильтр по статусу
+        ->with([
+            'status:id,name',                         // чтобы увидеть текст статуса
+            'orderItems.productSubCard.productCard',  // детали товаров
+        ])
+        ->orderByDesc('created_at')
+        ->get();
 
-    // 1) Retrieve documents where client_id = current user
-    $documents = Document::with('documentItems')->where('client_id', $userId)->get();
-
-    // 2) Retrieve financial orders where user_id = current user
-    $financialOrders = FinancialOrder::where('user_id', $userId)->get();
-
-    return response()->json([
-        'documents'        => $documents,
-        'financial_orders' => $financialOrders,
-    ], 200);
+    return response()->json($orders, 200);
 }
+
+    public function report_debs(Request $request): JsonResponse
+    {
+        /* 1.  Пользователь и период ---------------------------------- */
+        $uid  = Auth::id();
+        $from = Carbon::parse($request->query('date_start', '1970-01-01'))->startOfDay();
+        $to   = Carbon::parse($request->query('end_date',   now()))      ->endOfDay();
+
+        /* 2.  Приход: подтверждённые документы клиента ---------------- */
+        $incomeRows = Document::withSum(       // Laravel 8+
+                            'documentItems as doc_sum', 'total_sum'
+                        )
+            ->where('status',    'confirmed')
+            ->where('client_id', $uid)
+            ->whereBetween('document_date', [$from, $to])
+            ->orderBy('document_date')
+            ->get(['id','document_date']);     // только нужные поля
+
+        $incomeTotal = $incomeRows->sum('doc_sum');
+
+        /* 3.  Расход: платежи клиента -------------------------------- */
+        $expenseRows = FinancialOrder::where('user_id', $uid)
+            ->whereBetween('date_of_check', [$from, $to])
+            ->orderBy('date_of_check')
+            ->get([
+                'id            as payment_id',
+                'date_of_check as date',
+                'summary_cash',
+            ]);
+
+        $expenseTotal = $expenseRows->sum('summary_cash');
+
+        /* 4.  Балансы ------------------------------------------------- */
+        $opening  = 0.0;
+        $closing  = $opening + $incomeTotal - $expenseTotal;
+
+        /* 5.  Ответ --------------------------------------------------- */
+        return response()->json([
+            'date_from'       => $from->toDateString(),
+            'date_to'         => $to->toDateString(),
+
+            'opening_balance' => (float) $opening,
+            'income_total'    => (float) $incomeTotal,
+            'expense_total'   => (float) $expenseTotal,
+            'closing_balance' => (float) $closing,
+
+            /* списки без вложенных строк */
+            'income_rows'     => $incomeRows->map(fn($d) => [
+                                    'document_id'   => $d->id,
+                                    'document_date' => $d->document_date,
+                                    'doc_sum'       => (float) $d->doc_sum,
+                                ]),
+            'expense_rows'    => $expenseRows->map(fn($p) => [
+                                    'payment_id'    => $p->payment_id,
+                                    'date'          => $p->date,
+                                    'summary_cash'  => (float) $p->summary_cash,
+                                ]),
+        ]);
+    }
 
 }

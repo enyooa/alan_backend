@@ -14,13 +14,23 @@ class CreateProductSubCardsTable extends Migration
     public function up()
     {
         Schema::create('product_sub_cards', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name');
-            $table->integer('product_card_id'); 
+
+            // 🔽 turns product_card_id into a real FK that cascades
+            $table->foreignUuid('product_card_id')
+                  ->constrained('product_cards')
+                  ->cascadeOnDelete();
+
             $table->double('brutto')->nullable();
             $table->double('netto')->nullable();
             $table->timestamps();
         });
+
     }
 
     /**

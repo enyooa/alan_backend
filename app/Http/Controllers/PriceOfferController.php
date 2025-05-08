@@ -94,13 +94,13 @@ public function bulkPriceOffers(Request $request)
 
     // Now validate the normalized data
     $validatedData = validator($data, [
-        'client_id' => 'required|integer',
-        'address_id' => 'required|integer|exists:addresses,id',
+        'client_id' => 'required|uuid',
+        'address_id' => 'required|uuid|exists:addresses,id',
         'start_date' => 'required|date',
         'end_date' => 'required|date',
 
         'price_offer_items' => 'required|array',
-        'price_offer_items.*.product_subcard_id' => 'required|integer',
+        'price_offer_items.*.product_subcard_id' => 'required|uuid',
         'price_offer_items.*.unit_measurement'   => 'nullable|string',
         'price_offer_items.*.amount'             => 'required|numeric|min:0',
         'price_offer_items.*.price'              => 'required|numeric|min:0',

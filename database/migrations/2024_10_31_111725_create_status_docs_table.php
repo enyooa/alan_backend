@@ -15,9 +15,13 @@ class CreateStatusDocsTable extends Migration
     {
         // статусы накладных
         Schema::create('status_docs', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name');
-            
+
             $table->timestamps();
         });
     }

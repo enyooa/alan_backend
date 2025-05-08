@@ -6,3 +6,20 @@
 
 // Bootstrap
 @import '~bootstrap/scss/bootstrap';
+/* ─── brand colours already used by sidebar / header ───────────── */
+:root {
+    --brand-from: #03b4de;
+    --brand-to:   #6ec7db;
+
+    /* screenshot-style wallpaper */
+    --app-bg:
+      radial-gradient(150% 120% at 40% 20%, #ffffff 0%, #f8f8f8 40%, transparent 60%),
+      radial-gradient(80% 70%  at 110% 120%, rgba(77,169,236,.35) 0%, rgba(77,169,236,.25) 40%, transparent 80%),
+      linear-gradient(135deg, #eaf9ff 0%, #dbf0ff 40%, #cae7ff 100%);
+  }
+
+  /* apply to every page */
+  body {
+    background: var(--app-bg);
+    background-attachment: fixed;   // stays still while content scrolls
+  }

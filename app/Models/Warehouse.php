@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;  // ← import Str
+
 class Warehouse extends Model
 {
     use HasFactory;
@@ -15,8 +17,18 @@ class Warehouse extends Model
         'manager_id',
         'packer_id',
         'courier_id',
+        'organization_id'
     ];
-
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted()
+    {
+        static::creating(function ($s) {
+            if (empty($role->{$s->getKeyName()})) {
+                $s->{$s->getKeyName()} = Str::uuid()->toString();
+            }
+        });
+    }
     public function manager()
     {
         return $this->belongsTo(User::class, 'manager_id');

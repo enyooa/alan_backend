@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Support\Str;               // ← add this
 
 class User extends Authenticatable
 {
@@ -26,6 +27,8 @@ class User extends Authenticatable
         'summary',
         'address',
         'photo',
+        'organization_id',
+
     ];
 
     /**
@@ -47,6 +50,17 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
     ];
 
+    public $incrementing = false;
+    protected $keyType = 'string';
+
+    protected static function booted()
+    {
+        static::creating(function ($user) {
+            if (empty($user->{$user->getKeyName()})) {
+                $user->{$user->getKeyName()} = Str::uuid()->toString();
+            }
+        });
+    }
     /**
      * Define a many-to-many relationship with the Role model.
      */
@@ -66,12 +80,11 @@ class User extends Authenticatable
         return $this->roles->contains('name', $role);
     }
 
-    /**
-     * Check if the user has any of the given roles.
-     *
-     * @param array $roles
-     * @return bool
-     */
+    public function messages()
+    {
+        return $this->hasMany(Message::class);
+    }
+
     public function hasAnyRole(array $roles)
     {
         return $this->roles()->whereIn('name', $roles)->exists();
@@ -136,10 +149,6 @@ class User extends Authenticatable
     /**
      * Relationship: Many courier documents for this user.
      */
-    public function courierDocuments()
-    {
-        return $this->belongsToMany(CourierDocument::class, 'client_courier_documents', 'client_id', 'courier_document_id');
-    }
 
     public function permissions()
 {
@@ -161,6 +170,17 @@ public function givePermission($code)
     }
 }
 
+public function hasPermissionDeep(string $code): bool
+{
+    if ($this->hasPermission($code)) {
+        return true;                                        // direct
+    }
+
+    return $this->organization
+        ? $this->organization->planHasPermission($code)     // via plan
+        : false;
+}
+
 /* снять */
 public function revokePermission($code)
 {
@@ -169,4 +189,9 @@ public function revokePermission($code)
         $this->permissions()->detach($perm->id);
     }
 }
+
+public function organization()  // <- will be eager-loaded in responses
+    {
+        return $this->belongsTo(Organization::class);
+    }
 }

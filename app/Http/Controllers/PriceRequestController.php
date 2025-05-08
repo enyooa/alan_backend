@@ -6,7 +6,6 @@ namespace App\Http\Controllers;
 use App\Models\{
     PriceOfferOrder,
     PriceOfferItem,
-    ReferenceItem,
     WarehouseItem
 };
 use Carbon\Carbon;
@@ -18,62 +17,36 @@ use Illuminate\Validation\ValidationException;
 
 class PriceRequestController extends Controller
 {
-    /*────────────────────────────── 1. LIST ──────────────────────────────*/
-    /*──────────────────────── 1. LIST c фильтрами ───────────────────────*/
+    /* ─────────────────────── 1. LIST ─────────────────────── */
     public function index(Request $request): JsonResponse
-{
-    // «очищаем» вход: превращаем 'null', '',  'undefined' → null
-    $clientId = $this->clean($request->query('client_id'));
-    $date     = $this->clean($request->query('date'));
+    {
+        $orgId    = $request->user()->organization_id;
+        $clientId = $this->clean($request->query('client_id'));
+        $date     = $this->clean($request->query('date'));
 
-    $orders = PriceOfferOrder::with([
-            'client:id,first_name,last_name',
-            'address',
-            'warehouse',
-            'items.product.reference',
-            'items.unitRef',
-        ])
+        $orders = PriceOfferOrder::with([
+                'client:id,first_name,last_name',
+                'address',
+                'warehouse',
+                'items.product',
+                'items.unit',
+            ])
+            ->where('organization_id', $orgId)
+            ->when($clientId,
+                   fn ($q) => $q->where('client_id', $clientId))
+            ->when($date, function ($q) use ($date) {
+                  $parsed = Carbon::parse($date)->toDateString();
+                  $q->whereDate('start_date', '<=', $parsed)
+                    ->whereDate('end_date',   '>=', $parsed);
+            })
+            ->orderByDesc('created_at')
+            ->paginate(25)
+            ->appends($request->query());
 
-        /* фильтр по client_id (если задан) */
-        ->when($clientId !== null, function ($q) use ($clientId) {
-            $q->where('client_id', (int) $clientId);
-        })
-
-        /* фильтр по дате (если задана валидная дата) */
-        ->when($date !== null, function ($q) use ($date) {
-            // Carbon бросит исключение только если $date действительно не дата
-            $parsed = \Carbon\Carbon::parse($date)->toDateString();
-            $q->whereDate('start_date', '<=', $parsed)
-              ->whereDate('end_date',   '>=', $parsed);
-        })
-
-        ->orderByDesc('created_at')
-        ->paginate(25)
-        ->appends($request->query());   // чтобы пагинация сохраняла query-параметры
-
-    return response()->json($orders);
-}
-
-/**
- * Превращает строки 'null', '', 'undefined', 0-символьные пробелы → null
- * оставшиеся значения возвращает как есть.
- */
-protected function clean($value)
-{
-    if ($value === null) {
-        return null;
+        return response()->json($orders);
     }
 
-    $trimmed = trim((string) $value);
-
-    return ($trimmed === '' || strtolower($trimmed) === 'null' || strtolower($trimmed) === 'undefined')
-           ? null
-           : $trimmed;
-}
-
-
-
-    /*────────────────────────────── 2. SHOW ──────────────────────────────*/
+    /* ─────────────────────── 2. SHOW ─────────────────────── */
     public function show(PriceOfferOrder $order): JsonResponse
     {
         return response()->json(
@@ -81,22 +54,23 @@ protected function clean($value)
                 'client:id,first_name,last_name',
                 'address',
                 'warehouse',
-                'items.product.reference',
-                'items.unitRef',
+                'items.product',
+                'items.unit',
             ])
         );
     }
 
-    /*────────────────────────────── 3. STORE ─────────────────────────────*/
+    /* ─────────────────────── 3. STORE ────────────────────── */
     public function store(Request $request): JsonResponse
     {
         Log::info($request->all());
 
-        try {
-            $data = $this->validatePayload($request);   // create-mode
-        } catch (ValidationException $e) {
+        try   { $data = $this->validatePayload($request); }
+        catch (ValidationException $e) {
             return response()->json(['success'=>false,'errors'=>$e->errors()], 422);
         }
+
+        $data['organization_id'] = $request->user()->organization_id;
 
         DB::beginTransaction();
         try {
@@ -115,23 +89,18 @@ protected function clean($value)
         }
     }
 
-    /*────────────────────────────── 4. UPDATE ────────────────────────────*/
+    /* ─────────────────────── 4. UPDATE ───────────────────── */
     public function update(Request $request, PriceOfferOrder $order): JsonResponse
     {
-        Log::info($request->all());
-
-        try {
-            $data = $this->validatePayload($request, $order->id);  // update-mode
-        } catch (ValidationException $e) {
+        try   { $data = $this->validatePayload($request, $order->id); }
+        catch (ValidationException $e) {
             return response()->json(['success'=>false,'errors'=>$e->errors()], 422);
         }
 
         DB::beginTransaction();
         try {
-            /* 1. убираем старые строки */
             $order->items()->delete();
 
-            /* 2. обновляем «шапку» */
             $order->update([
                 'client_id'    => $data['client_id']  ?? $order->client_id,
                 'address_id'   => $data['address_id'] ?? $order->address_id,
@@ -141,10 +110,9 @@ protected function clean($value)
                 'totalsum'     => 0,
             ]);
 
-            /* 3. вставляем новые строки */
             $order = $this->insertOrderWithItems($data, $order);
-
             DB::commit();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Ценовое предложение обновлено',
@@ -157,7 +125,7 @@ protected function clean($value)
         }
     }
 
-    /*────────────────────────────── 5. DELETE ────────────────────────────*/
+    /* ─────────────────────── 5. DELETE ───────────────────── */
     public function destroy(PriceOfferOrder $order): JsonResponse
     {
         DB::beginTransaction();
@@ -165,8 +133,7 @@ protected function clean($value)
             $order->items()->delete();
             $order->delete();
             DB::commit();
-
-            return response()->json(['success' => true]);
+            return response()->json(['success'=>true]);
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -174,114 +141,97 @@ protected function clean($value)
         }
     }
 
-    /*══════════════════════════════ HELPERS ══════════════════════════════*/
+    /* ═════════════════════ HELPERS ════════════════════════ */
 
-    /**
-     * Универсальная валидация payload'а.
-     * При $orderId === null — режим create, иначе update (некоторые поля становятся optional).
-     */
-    protected function validatePayload(Request $r, ?int $orderId = null): array
+    protected function clean($v) {
+        if ($v === null) return null;
+        $t = trim((string)$v);
+        return ($t==='' || in_array(strtolower($t),['null','undefined'],true)) ? null : $t;
+    }
+
+    /** Валидация (create / update) */
+    protected function validatePayload(Request $r, ?string $orderId = null): array
     {
         $rules = [
-            'warehouse_id'  => ['required','integer','exists:warehouses,id'],
-
+            'warehouse_id'  => ['required','uuid','exists:warehouses,id'],
             'start_date'    => ['required','date'],
             'end_date'      => ['required','date','after_or_equal:start_date'],
 
-            'products'                                => ['required','array','min:1'],
-            'products.*.product.product_subcard_id'   => ['required','integer','exists:reference_items,id'],
-            'products.*.unit.id'                      => ['required','integer','exists:reference_items,id'],
-            'products.*.price'                        => ['required','numeric','gt:0'],
+            'products'                                      => ['required','array','min:1'],
+            'products.*.product.product_subcard_id'         => ['required','uuid','exists:product_sub_cards,id'],
+            'products.*.unit.name'                          => ['required','string','max:255'],   // ← только name
+            'products.*.price'                              => ['required','numeric','gt:0'],
         ];
 
-        // client / address: обязательны при создании, факультативны при обновлении
-        $rules['client_id']  = $orderId
-            ? ['sometimes','integer','exists:users,id']
-            : ['required','integer','exists:users,id'];
+        $rules['client_id']  = $orderId ? ['sometimes','uuid','exists:users,id']
+                                        : ['required','uuid','exists:users,id'];
+        $rules['address_id'] = $orderId ? ['sometimes','uuid','exists:addresses,id']
+                                        : ['required','uuid','exists:addresses,id'];
 
-        $rules['address_id'] = $orderId
-            ? ['sometimes','integer','exists:addresses,id']
-            : ['required','integer','exists:addresses,id'];
-
-        // qty/qtyTare: >0 при создании, ≥0 при обновлении
-        $qtyRuleCreate  = ['nullable','numeric','gt:0'];
-        $qtyRuleUpdate  = ['nullable','numeric','gte:0'];
+        $qtyRuleCreate = ['nullable','numeric','gt:0'];
+        $qtyRuleUpdate = ['nullable','numeric','gte:0'];
         $rules['products.*.qty']     = $orderId ? $qtyRuleUpdate : $qtyRuleCreate;
         $rules['products.*.qtyTare'] = $orderId ? $qtyRuleUpdate : $qtyRuleCreate;
 
         return $r->validate($rules);
     }
 
-    /**
-     * Создаёт новый заказ или добавляет строки к существующему.
-     *
-     * @param  array                    $data
-     * @param  PriceOfferOrder|null     $existing
-     * @return PriceOfferOrder
-     */
+    /** Создание / обновление + строки */
     protected function insertOrderWithItems(array $data,
                                             ?PriceOfferOrder $existing = null): PriceOfferOrder
     {
-        /* 1. Шапка */
+        /* 1. Header */
         $order = $existing ?? PriceOfferOrder::create([
-            'client_id'    => $data['client_id'],
-            'address_id'   => $data['address_id'],
-            'warehouse_id' => $data['warehouse_id'],
-            'start_date'   => Carbon::parse($data['start_date'])->toDateString(),
-            'end_date'     => Carbon::parse($data['end_date'])->toDateString(),
-            'totalsum'     => 0,
+            'client_id'       => $data['client_id'],
+            'address_id'      => $data['address_id'],
+            'warehouse_id'    => $data['warehouse_id'],
+            'organization_id' => $data['organization_id'],
+            'start_date'      => Carbon::parse($data['start_date'])->toDateString(),
+            'end_date'        => Carbon::parse($data['end_date'])->toDateString(),
+            'totalsum'        => 0,
         ]);
 
-        /* 2. Строки */
-        $sumTotal = 0;
-        $items    = [];
-        $whId     = $data['warehouse_id'];
+        /* 2. Lines */
+        $sum   = 0;
+        $items = [];
+        $whId  = $data['warehouse_id'];
 
         foreach ($data['products'] as $row) {
-            $prodId   = (int) $row['product']['product_subcard_id'];
-            $unitId   = (int) $row['unit']['id'];
-            $unitName = ReferenceItem::findOrFail($unitId)->name;
 
+            $prodId   = $row['product']['product_subcard_id'];  // UUID
+            $unitName = $row['unit']['name'];                   // строка «коробка»
             $qtyRaw   = $row['qtyTare'] ?? $row['qty'] ?? 0;
-            $qty      = (float) ($qtyRaw === '' ? 0 : $qtyRaw);
-            $price    = (float) $row['price'];
+            $qty      = (float)($qtyRaw === '' ? 0 : $qtyRaw);
+            $price    = (float)$row['price'];
 
-            /* Проверка остатка */
+            /* остаток на складе */
             $stock = WarehouseItem::where([
-                         'warehouse_id'       => $whId,
-                         'product_subcard_id' => $prodId,
-                         'unit_measurement'   => $unitName,
-                     ])->first()
-                  ?? WarehouseItem::where([
-                         'warehouse_id'       => $whId,
-                         'product_subcard_id' => $prodId,
-                         'unit_measurement'   => $unitId,
+                        'warehouse_id'       => $whId,
+                        'product_subcard_id' => $prodId,
+                        'unit_measurement'   => $unitName,
                      ])->first();
 
             if (!$stock || $stock->quantity < $qty) {
-                throw new \Exception(
-                    "Не хватает товара id={$prodId} ({$unitName}) на складе #{$whId}"
-                );
+                throw new \Exception("Не хватает товара id={$prodId} ({$unitName}) на складе #{$whId}");
             }
 
-            $lineSum  = $qty * $price;
-            $sumTotal += $lineSum;
+            $lineSum = $qty * $price;
+            $sum    += $lineSum;
 
             $items[] = new PriceOfferItem([
                 'product_subcard_id' => $prodId,
-                'unit_measurement'   => $unitName,   // сохраняем название!
+                'unit_measurement'   => $unitName,
                 'amount'             => $qty,
                 'price'              => $price,
             ]);
         }
 
         $order->items()->saveMany($items);
-        $order->update(['totalsum' => $sumTotal]);
+        $order->update(['totalsum' => $sum]);
 
         return $order;
     }
 
-    /** Унифицированный ответ-ошибка */
     protected function fail(\Throwable $e): JsonResponse
     {
         Log::error('PriceOffer error: '.$e->getMessage());

@@ -14,11 +14,16 @@ class CreatePriceOffersTable extends Migration
     public function up()
     {
         Schema::create('price_offers_items', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
 
-            $table->integer('price_offer_order_id')->nullable();
+            $table->foreignUuid('price_offer_order_id')
+              ->constrained('price_offer_orders')
+              ->cascadeOnDelete();
 
-            $table->integer('product_subcard_id');
+            // product FK
+            $table->foreignUuid('product_subcard_id')
+              ->constrained('product_sub_cards')
+              ->cascadeOnDelete();
             $table->string('unit_measurement')->nullable();
             $table->integer('amount')->nullable();
             $table->integer('price')->nullable();

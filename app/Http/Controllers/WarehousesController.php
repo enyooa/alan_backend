@@ -17,10 +17,20 @@ use Illuminate\Support\Facades\Log;
 class WarehousesController extends Controller
 {
 
-    public function getWarehouses(){
-        $warehouses = Warehouse::all();
-        return response()->json($warehouses, 200);
-    }
+    // app/Http/Controllers/WarehouseController.php
+public function getWarehouses(Request $request)
+{
+    /** @var \App\Models\User $user */
+    $user = $request->user();                         // авторизованный
+    $org  = $user->organization_id;                 // UUID
+
+    $items = Warehouse::where('organization_id', $org)
+                      ->orderBy('name')
+                      ->get();
+
+    return response()->json($items);                  // 200 по-умолчанию
+}
+
 
     // In WarehouseItemController
 public function getWarehouseItems(Request $request)
@@ -36,8 +46,8 @@ public function getWarehouseItems(Request $request)
     $result = [];
     foreach ($items as $whItem) {
         // Optionally grab product name from product_sub_cards
-        $product = DB::table('reference_items')
-            ->where('id', $whItem->card_id)
+        $product = DB::table('product_sub_cards')
+            ->where('id', $whItem->product_subcard_id)
             ->select('id','name')
             ->first();
 

@@ -8,14 +8,35 @@ class CreatePriceOfferOrdersTable extends Migration
 {
     public function up()
     {
-        Schema::create('price_offer_orders', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('client_id')->nullable();
-            $table->unsignedBigInteger('address_id')->nullable();
-            $table->date('start_date')->nullable();
-            $table->date('end_date')->nullable();
-            $table->decimal('totalsum', 12, 2)->nullable();
-            $table->timestamps();
+        Schema::create('price_offer_orders', function (Blueprint $t) {
+            $t->uuid('id')->primary();
+            $t->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
+            // client who requested the price offer
+            $t->foreignUuid('client_id')
+              ->nullable()
+              ->constrained('users')
+              ->nullOnDelete();           // if client deleted, keep header but set NULL
+
+            // delivery address
+            $t->foreignUuid('address_id')
+              ->nullable()
+              ->constrained('addresses')
+              ->nullOnDelete();
+
+            // optional warehouse FK (add only if you really use it)
+            // $t->foreignUuid('warehouse_id')
+            //   ->nullable()
+            //   ->constrained('warehouses')
+            //   ->nullOnDelete();
+
+            $t->date('start_date')->nullable();
+            $t->date('end_date')->nullable();
+            $t->decimal('totalsum', 12, 2)->nullable();
+
+            $t->timestamps();
         });
     }
 

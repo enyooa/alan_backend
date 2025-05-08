@@ -1,256 +1,173 @@
+<!-- resources/js/views/Access.vue -->
 <template>
-   <div class="dashboard-container">
-     <!-- Sidebar -->
-     <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" />
- 
-     <!-- Main Content -->
-     <div class="main-content">
-       <!-- Header -->
-       <Header />
- 
-       <main class="content">
-         <h2 class="page-title">Присвоить и удалить роли</h2>
- 
-         <!-- User Dropdown -->
-         <div class="dropdown">
-           <label for="user">Выберите пользователя:</label>
-           <select v-model="selectedUser" id="user" class="select">
-             <option disabled value="">Выберите пользователя</option>
-             <option v-for="user in users" :key="user.id" :value="user">
-               {{ user.first_name }} {{ user.last_name }}
-             </option>
-           </select>
-         </div>
- 
-         <!-- Display roles of selected user -->
-         <div v-if="selectedUser">
-           <h3>Роли пользователя:</h3>
-           <div v-if="selectedUser.roles.length === 0">
-             <p>У пользователя нет ролей.</p>
-           </div>
-           <ul class="role-list">
-             <li v-for="role in selectedUser.roles" :key="role.name" class="role-item">
-               {{ rolesMap[role.name] || role.name }}
-               <button @click="removeRole(role.name)" class="remove-btn">Удалить роль</button>
-             </li>
-           </ul>
-         </div>
- 
-         <!-- Role Assignment -->
-         <div class="dropdown">
-           <label for="role">Выберите роль для присвоения:</label>
-           <select v-model="selectedRole" id="role" class="select">
-             <option disabled value="">Выберите роль</option>
-             <option v-for="role in roles" :key="role" :value="role">
-               {{ rolesMap[role] }}
-             </option>
-           </select>
-         </div>
- 
-         <!-- Assign Role Button -->
-         <button @click="assignRole" :disabled="!selectedUser || !selectedRole" class="assign-btn">
-           Присвоить роль
-         </button>
- 
-         <!-- Feedback message -->
-         <div v-if="message" :class="messageType" class="feedback-message">
-           {{ message }}
-         </div>
-       </main>
-     </div>
-   </div>
- </template>
- 
- <script>
- import axios from "axios";
- import Sidebar from "../components/Sidebar.vue";
- import Header from "../components/Header.vue";
- 
- export default {
-   components: { Sidebar, Header },
-   data() {
-     return {
-       users: [], // Array to store users
-       selectedUser: null, // Selected user for role assignment
-       selectedRole: null, // Selected role to assign
-       roles: ['cashbox', 'courier', 'packer', 'client', 'admin', 'storager'], // Possible roles
-       rolesMap: {
-         cashbox: 'Касса',
-         courier: 'Курьер',
-         packer: 'Упаковщик',
-         client: 'Клиент',
-         admin: 'Администратор',
-         storager: 'Кладовщик',
-       },
-       message: "", // To display success or error messages
-       messageType: "", // To differentiate between success and error messages
-     };
-   },
-   created() {
-     this.fetchUsers();
-   },
-   methods: {
-     // Fetch users from API
-     async fetchUsers() {
-       try {
-         const response = await axios.get("/api/users");
-         this.users = response.data;
-       } catch (error) {
-         this.showMessage("Не удалось загрузить пользователей", "error");
-       }
-     },
- 
-     // Assign role to the selected user
-     async assignRole() {
-       if (!this.selectedUser || !this.selectedRole) {
-         return;
-       }
- 
-       try {
-         const response = await axios.put(`/api/users/${this.selectedUser.id}/assign-roles`, {
-           role: this.selectedRole,
-         });
-         this.selectedUser.roles.push({ name: this.selectedRole }); // Update roles locally
-         this.showMessage("Роль успешно присвоена!", "success");
-       } catch (error) {
-         this.showMessage("Ошибка при присвоении роли", "error");
-       }
-     },
- 
-     // Remove role from the selected user
-     async removeRole(roleName) {
-       if (!this.selectedUser) return;
- 
-       try {
-         const response = await axios.delete(`/api/users/${this.selectedUser.id}/remove-role`, {
-           data: { role: roleName },
-         });
-         this.selectedUser.roles = this.selectedUser.roles.filter(role => role.name !== roleName);
-         this.showMessage("Роль успешно удалена!", "success");
-       } catch (error) {
-         this.showMessage("Ошибка при удалении роли", "error");
-       }
-     },
- 
-     // Helper to show messages
-     showMessage(message, type) {
-       this.message = message;
-       this.messageType = type;
-       setTimeout(() => {
-         this.message = ""; // Clear message after 3 seconds
-       }, 3000);
-     },
-   },
- };
- </script>
- 
- <style scoped>
- .dashboard-container {
-   display: flex;
-   min-height: 100vh;
- }
- 
- .main-content {
-   flex: 1;
-   padding: 20px;
-   background-color: #f5f5f5;
- }
- 
- .content {
-   width: 100%;
-   max-width: 800px;
-   margin: 0 auto;
- }
- 
- .page-title {
-   color: #0288d1;
-   text-align: center;
-   font-size: 1.5rem;
-   margin-bottom: 20px;
- }
- 
- .dropdown {
-   margin-bottom: 20px;
- }
- 
- .dropdown label {
-   font-weight: bold;
-   display: block;
-   margin-bottom: 8px;
- }
- 
- .select {
-   width: 100%;
-   padding: 12px;
-   margin-top: 8px;
-   border: 1px solid #ddd;
-   border-radius: 5px;
- }
- 
- button {
-   background-color: #0288d1;
-   color: white;
-   padding: 12px;
-   border: none;
-   border-radius: 5px;
-   width: 100%;
-   cursor: pointer;
- }
- 
- button:disabled {
-   background-color: #aaa;
- }
- 
- button:hover:not(:disabled) {
-   background-color: #026ca0;
- }
- 
- .role-list {
-   list-style-type: none;
-   padding-left: 20px;
- }
- 
- .role-item {
-   margin-bottom: 10px;
-   display: flex;
-   justify-content: space-between;
- }
- 
- .remove-btn {
-   background-color: red;
-   color: white;
-   padding: 5px;
-   border: none;
-   border-radius: 5px;
-   cursor: pointer;
- }
- 
- .feedback-message {
-   margin-top: 20px;
-   font-weight: bold;
-   text-align: center;
- }
- 
- .success {
-   color: green;
- }
- 
- .error {
-   color: red;
- }
- 
- @media (max-width: 768px) {
-   .main-content {
-     padding: 10px;
-   }
- 
-   .page-title {
-     font-size: 1.2rem;
-   }
- 
-   .select, button {
-     font-size: 14px;
-   }
- }
- </style>
- 
+    <div class="access-page">
+      <h2 class="title">Роли и доступы</h2>
+
+      <!-- ╔══ РОЛИ ══╗ -->
+      <section class="card">
+        <h3 class="card-title">Настройка роли</h3>
+
+        <div v-for="r in allRoles" :key="r" class="row">
+          <span class="row-label">{{ beautify(r) }}</span>
+
+          <!-- кастом-switch -->
+          <label class="switch">
+            <input
+              type="checkbox"
+              :checked="userRoles.includes(r)"
+              @change="toggleRole(r)"
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- ╔══ ПРАВА ══╗ -->
+      <section class="card">
+        <h3 class="card-title">Настройки доступа</h3>
+
+        <div v-for="p in allPerms" :key="p.code" class="row">
+          <span class="row-label">{{ p.name }}</span>
+
+          <label class="switch">
+            <input
+              type="checkbox"
+              :checked="userPerms.includes(p.code)"
+              @change="togglePerm(p.code)"
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <button class="save-btn" @click="save">Сохранить</button>
+    </div>
+  </template>
+
+  <script>
+  import axios from "axios";
+
+  export default {
+    name: "Access",
+    props: ["userId"],
+
+    data: () => ({
+      /* из /api/stuff */
+      allRoles : [],                   // ["admin", "packer", …]
+      allPerms : [],                   // [{ code:1102, name:"Накладные" }, …]
+
+      /* выбранные чекбоксы */
+      userRoles: [],
+      userPerms: [],
+    }),
+
+    created() {
+      this.fetchInitial();
+    },
+
+    methods: {
+      /* ───────── загрузка данных ───────── */
+      async fetchInitial() {
+        try {
+          const { data: groups } = await axios.get("/api/stuff");
+
+          /* 1) все возможные роли */
+          const roleSet = new Set();
+          groups.forEach(g => {
+            if (g.role) roleSet.add(g.role);
+            g.users.forEach(u => u.roles.forEach(r => roleSet.add(r)));
+          });
+          this.allRoles = Array.from(roleSet).sort();
+
+          /* 2) все возможные права (code → name) */
+          const map = {};
+          groups.forEach(g =>
+            g.users.forEach(u =>
+              u.permissions.forEach(([name, code]) => {
+                if (!map[code]) map[code] = name;
+              })
+            )
+          );
+          this.allPerms = Object.entries(map)
+            .map(([code, name]) => ({ code: Number(code), name }))
+            .sort((a, b) => a.code - b.code);
+
+          /* 3) данные текущего пользователя */
+          const uid = Number(this.userId);
+          for (const g of groups) {
+            const user = g.users.find(u => u.id === uid);
+            if (user) {
+              this.userRoles = [...user.roles];
+              this.userPerms = user.permissions.map(p => Number(p[1])); // только код
+              break;
+            }
+          }
+        } catch (e) {
+          console.error("Access.vue fetchInitial error:", e);
+        }
+      },
+
+      beautify(r) {
+        return r === "Без ролей" ? r : r[0].toUpperCase() + r.slice(1);
+      },
+
+      /* ───────── чекбоксы ───────── */
+      toggleRole(r) {
+        const i = this.userRoles.indexOf(r);
+        i === -1 ? this.userRoles.push(r) : this.userRoles.splice(i, 1);
+      },
+
+      togglePerm(code) {
+        const i = this.userPerms.indexOf(code);
+        i === -1 ? this.userPerms.push(code) : this.userPerms.splice(i, 1);
+      },
+
+      /* ───────── сохранение на сервер ───────── */
+      async save() {
+        try {
+          await axios.put(`/api/users/${this.userId}/roles-permissions`, {
+            roles:       this.userRoles,
+            permissions: this.userPerms,
+          });
+          this.$toast?.success("Сохранено");
+          this.$router.back();
+        } catch (e) {
+          console.error("Access.vue save error:", e);
+          this.$toast?.error("Ошибка сохранения");
+        }
+      },
+    },
+  };
+  </script>
+
+  <style scoped>
+  /* базовый фон и центровка */
+  .access-page { max-width:640px;margin:0 auto;padding:1rem; }
+  .title       { margin:.3rem 0 1.2rem; font-size:1.4rem; font-weight:600; color:#0096b4; }
+
+  /* карточка блоков */
+  .card       { background:#f7f7f7;border-radius:18px;padding:1rem 1.2rem;margin-bottom:1.5rem;
+                box-shadow:0 2px 6px rgba(0,0,0,.05); }
+  .card-title { margin:0 0 .8rem; font-weight:600; font-size:1.05rem; }
+
+  /* строка внутри карточки */
+  .row        { display:flex;align-items:center;justify-content:space-between;padding:.5rem 0; }
+  .row-label  { max-width:70%; }
+
+  /* кастомный switch */
+  .switch              { position:relative; display:inline-block; width:46px; height:24px; }
+  .switch input        { opacity:0; width:0; height:0; }
+  .slider              { position:absolute; inset:0; border-radius:24px;
+                          background:#bfc0c1; transition:.3s; cursor:pointer; }
+  .slider::before      { content:""; position:absolute; height:18px; width:18px;
+                          left:3px; top:3px; border-radius:50%;
+                          background:#ffffff; transition:.3s; }
+  input:checked + .slider      { background:#02c0e0; }
+  input:checked + .slider::before { transform:translateX(22px); }
+
+  /* кнопка */
+  .save-btn   { width:100%; padding:1rem; border:none; border-radius:14px; font-size:1.1rem;
+                color:#fff; background:linear-gradient(90deg,#02c0e0,#1fa4d5);
+                box-shadow:0 3px 6px rgba(0,0,0,.15); cursor:pointer; }
+  .save-btn:active { transform:scale(.98); }
+  </style>

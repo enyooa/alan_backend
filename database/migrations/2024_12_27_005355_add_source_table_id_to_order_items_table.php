@@ -14,7 +14,7 @@ class AddSourceTableIdToOrderItemsTable extends Migration
     public function up()
     {
         Schema::table('order_items', function (Blueprint $table) {
-            $table->unsignedBigInteger('source_table_id')->after('source_table')->nullable();
+            $table->uuid('source_table_id')->nullable()->after('source_table');
         });
     }
 

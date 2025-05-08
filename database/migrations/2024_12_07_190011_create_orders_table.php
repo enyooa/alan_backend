@@ -14,10 +14,18 @@ class CreateOrdersTable extends Migration
     public function up()
     {
         Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-            $table->integer('user_id'); // User who placed the order
-
-            $table->unsignedBigInteger('status_id')->nullable();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
+            $table->foreignUuid('user_id')
+            ->constrained('users')
+            ->cascadeOnDelete();
+            $table->foreignUuid('status_id')
+            ->nullable()
+            ->constrained('status_docs')
+            ->nullOnDelete();
             $table->string('address')->nullable(); // Delivery address
             $table->timestamp('shipped_at')->nullable(); // When the order was shipped
             $table->timestamp('delivered_at')->nullable(); // When the order was delivered

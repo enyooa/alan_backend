@@ -1,89 +1,75 @@
 <template>
     <section class="operations-page">
-      <h2 class="page-title">Операции (Docs)</h2>
+      <h2 class="page-title">Операции</h2>
 
-      <!-- ▸ “Create” dropdown -->
-      <div class="dropdown-section">
-        <label class="dropdown-label">Создать:</label>
-        <select
-          v-model="selectedOption"
-          @change="openCreateModal"
-          class="dropdown-select"
-        >
+      <!-- ▸ create dropdown -->
+      <div class="toolbar">
+        <label>Создать:</label>
+        <select v-model="selectedOption" @change="openCreateModal">
           <option v-for="o in productOptions" :key="o.value" :value="o.value">
             {{ o.label }}
           </option>
         </select>
-      </div>
 
-      <!-- ▸ CREATE modal -->
-      <div v-if="showCreateModal" class="modal-overlay">
-        <div class="modal-container">
-          <button class="close-modal-btn" @click="closeCreateModal">✖</button>
-          <component
-            :is="currentCreateComponent"
-            @close="closeCreateModal"
-            @saved="onNewRecordSaved"
-          />
-        </div>
-      </div>
-
-      <!-- ▸ Search --------------------------------------------------------- -->
-      <div class="search-section">
+        <!-- live search -->
         <input
           v-model="searchQuery"
-          class="search-input"
+          class="search"
+          type="search"
           placeholder="Поиск…"
         />
       </div>
 
-      <!-- ▸ Documents table ------------------------------------------------ -->
-      <div class="history-section">
-        <h3>Список документов</h3>
-        <div class="table-container">
-          <table class="history-table">
-            <thead>
-              <tr>
-                <th>№</th><th>Тип</th><th>Дата</th>
-                <th>Поставщик</th><th>Итог</th><th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(doc, idx) in filteredDocs" :key="doc.doc_id">
-                <td>{{ doc.document_number || doc.doc_id }}</td>
-                <td>{{ mapTypeToLabel(doc.type) }}</td>
-                <td>{{ formatDate(doc.document_date) }}</td>
-                <td>{{ doc.provider_name || '-' }}</td>
-                <td>{{ doc.doc_total_sum }}</td>
-                <td>
-                  <button class="edit-btn"   @click="openEditModal(doc)">✏️</button>
-                  <button class="delete-btn" @click="deleteRecord(doc, idx)">🗑</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <!-- ▸ glass table -->
+      <div class="table-wrapper">
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>Тип</th>
+              <th>Дата</th>
+              <th>Поставщик</th>
+              <th>Итог</th>
+              <th></th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(doc, idx) in filteredDocs" :key="doc.doc_id">
+              <td>{{ doc.document_number || doc.doc_id }}</td>
+              <td>{{ mapTypeToLabel(doc.type) }}</td>
+              <td>{{ formatDate(doc.document_date) }}</td>
+              <td>{{ doc.provider_name || '—' }}</td>
+              <td>{{ doc.doc_total_sum }}</td>
+              <td class="actions">
+                <button class="icon-btn" @click="openEditModal(doc)">
+                  ✏️
+                </button>
+                <button class="icon-btn danger" @click="deleteRecord(doc, idx)">
+                  🗑
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <!-- ▸ EDIT modal ----------------------------------------------------- -->
-      <div v-if="showEditModal" class="modal-overlay">
-        <div class="modal-container">
-          <button class="close-modal-btn" @click="closeEditModal">✖</button>
+      <!-- create & edit modals (unchanged) -->
+      <ModalShell v-if="showCreateModal" @close="closeCreateModal">
+        <component :is="currentCreateComponent" @close="closeCreateModal" @saved="onNewRecordSaved"/>
+      </ModalShell>
 
-          <!-- one modal per doc.type -->
-          <EditIncomeModal     v-if="isType('income')"      :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-          <EditWriteOffModal   v-else-if="isType('write_off')"  :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-          <EditSaleModal       v-else-if="isType('sale')"        :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-          <EditTransferModal   v-else-if="isType('transfer')"    :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-          <EditPriceOfferModal v-else-if="isType('priceOffer')"  :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-          <EditInventoryModal  v-else-if="isType('inventory')"   :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
-
-          <p v-else>Нет формы для редактирования: {{ docToEdit?.type }}</p>
-        </div>
-      </div>
+      <ModalShell v-if="showEditModal" @close="closeEditModal">
+        <EditIncomeModal     v-if="isType('income')"       :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <EditWriteOffModal   v-else-if="isType('write_off')" :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <EditSaleModal       v-else-if="isType('sale')"       :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <EditTransferModal   v-else-if="isType('transfer')"   :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <EditPriceOfferModal v-else-if="isType('priceOffer')" :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <EditInventoryModal  v-else-if="isType('inventory')"  :document-id="docToEdit.doc_id" @close="closeEditModal" @saved="onDocEdited"/>
+        <p v-else>Нет формы для {{ docToEdit?.type }}</p>
+      </ModalShell>
     </section>
   </template>
-
   <script>
   /* “Create” pages ------------------------------------------------------ */
   import SalePage            from "./SalePage.vue";
@@ -100,6 +86,7 @@
   import EditTransferModal   from "./forms/products/EditTransferModal.vue";
   import EditPriceOfferModal from "./forms/products/PriceOfferEdit.vue";
   import EditInventoryModal  from "./forms/products/EditInventoryModal.vue";
+  import ModalShell from './forms/products/ModalShell.vue'; // tiny wrapper for the overlay / container
 
   import axios from "axios";
 
@@ -111,7 +98,7 @@
       ProductReceivingPage, WriteOffPage, InventoryCheckPage,
       /* edit */
       EditIncomeModal, EditWriteOffModal, EditSaleModal,
-      EditTransferModal, EditPriceOfferModal, EditInventoryModal
+      EditTransferModal, EditPriceOfferModal, EditInventoryModal,ModalShell
     },
     data() {
       return {
@@ -208,9 +195,91 @@
   </script>
 
   <style scoped>
-  .operations-page{padding:20px;background:#f5f5f5;min-height:calc(100vh - 56px)}
-  .page-title{text-align:center;color:#0288d1;margin-bottom:20px}
+  .operations-page{
+    padding:32px 24px;
+    min-height:calc(100vh - 56px);
+    background:var(--app-bg);
+  }
+  .page-title{
+    font-size:24px;
+    font-weight:800;
+    color:var(--brand-from);
+    text-align:center;
+    margin-bottom:26px;
+  }
+  .toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+    align-items:center;
+    margin-bottom:24px;
+  }
+  .toolbar label{ font-weight:600; }
+  .toolbar select,
+  .toolbar .search{
+    padding:8px 12px;
+    border:1px solid #cbd5e1;
+    border-radius:8px;
+    font-size:14px;
+  }
 
+  /* glass table wrapper */
+  .table-wrapper{
+    background:var(--glass-bg);
+    backdrop-filter:var(--glass-blur);
+    padding:24px;
+    border-radius:20px;
+    box-shadow:0 6px 18px rgba(0,0,0,.06);
+    overflow-x:auto;
+  }
+
+  /* table */
+  .docs-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:14px;
+  }
+  .docs-table thead{
+    background:linear-gradient(90deg,var(--brand-from),var(--brand-to));
+    color:#fff;
+  }
+  .docs-table th,
+  .docs-table td{
+    padding:10px 14px;
+    text-align:center;
+  }
+  .docs-table tbody tr:nth-child(odd){ background:rgba(255,255,255,.6); }
+  .docs-table tbody tr:hover{ background:rgba(0,0,0,.05); }
+
+  /* action buttons */
+  .icon-btn{
+    background:var(--brand-from);
+    color:#fff;
+    border:none;
+    border-radius:6px;
+    padding:4px 8px;
+    font-size:16px;
+    cursor:pointer;
+    transition:filter .15s;
+  }
+  .icon-btn.danger{ background:#f44336; }
+  .icon-btn:hover{ filter:brightness(.9); }
+  .actions{ display:flex; gap:6px; justify-content:center; }
+
+  /* reusable modal shell (overlay + card) */
+  .modal-overlay{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.45);
+    display:flex; justify-content:center; align-items:center;
+    z-index:2000;
+  }
+  .modal-card{
+    background:#fff; padding:28px; border-radius:18px;
+    max-width:90vw; max-height:90vh; overflow:auto;
+    position:relative;
+  }
+  .modal-card .close{ position:absolute; top:12px; right:12px;
+    background:none; border:none; font-size:22px; cursor:pointer; }
   /* dropdown */
   .dropdown-section{display:flex;align-items:center;gap:8px;margin-bottom:20px}
   .dropdown-label{font-weight:600}

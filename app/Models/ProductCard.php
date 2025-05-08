@@ -4,14 +4,24 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;  // ← import Str
+
 
 class ProductCard extends Model
 {
     use HasFactory;
 
     protected $table = 'product_cards';
+    public $incrementing = false;       // ← add
+    protected $keyType   = 'string';
+
+    protected static function booted()
+    {
+        static::creating(fn ($product_cards) => $product_cards->id ??= (string) Str::uuid());
+    }
 
     protected $fillable = [
+        'organization_id',
         'name_of_products',
         'description',
         'country',

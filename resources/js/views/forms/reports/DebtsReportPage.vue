@@ -6,7 +6,7 @@
         <button @click="fetchReport" class="filter-button">Сформировать</button>
       </div>
 
-      <h2>Income Documents + FinancialOrder (Expense) + Client Debts</h2>
+      <h2>Поступление + фин ордер + долги клиента</h2>
       <table class="modern-table">
         <thead>
           <tr>

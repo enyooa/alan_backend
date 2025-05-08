@@ -4,11 +4,23 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Document extends Model
 {
     use HasFactory;
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function boot()
+    {
+        parent::boot();                       // ← не забываем!
 
+        static::creating(function ($model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
+            }
+        });
+    }
     protected $table = 'documents';
 
     protected $fillable = [
@@ -17,7 +29,8 @@ class Document extends Model
         'from_warehouse_id',
         'to_warehouse_id',
         'client_id',
-
+        'to_organization_id',
+        'organization_id',
         'status',
         'worker_user_id',
         'document_date',
@@ -73,27 +86,17 @@ class Document extends Model
         return $this->belongsTo(User::class, 'worker_user_id');
     }
 
-    public function expenses()
-{
-    // If your Expense table has `document_id` as a foreign key
-    return $this->hasMany(Expense::class, 'document_id');
-}
+    public function expenses()    { return $this->hasMany(Expense::class); }
+
 public function items()            { return $this->hasMany(DocumentItem::class,'document_id'); }
 
 
-public function toWarehouse()      { return $this->belongsTo(Warehouse::class,'to_warehouse_id'); }
+public function toWarehouse()   { return $this->belongsTo(Warehouse::class,'to_warehouse_id'); }
 
 
-public function fromWarehouse()    { return $this->belongsTo(Warehouse::class,'from_warehouse_id'); }
+public function fromWarehouse() { return $this->belongsTo(Warehouse::class,'from_warehouse_id'); }
 
-public function providerItem()           // вместо старой Provider-модели
-{
-    /*  provider_id  теперь →  id из reference_items
-        у самой строки‐item сразу вытянем “родителя” – Reference (карточку «Поставщик»),
-        чтобы на фронте был и заголовок, и сам поставщик-item                    */
-    return $this->belongsTo(ReferenceItem::class, 'provider_id')
-                ->with('reference:id,title');
-}
+
 
 protected $appends = ['client_info'];
 

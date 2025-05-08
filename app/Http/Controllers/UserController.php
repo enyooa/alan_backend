@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Permission;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -9,7 +10,9 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\Role;
 use App\Models\Warehouse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
@@ -66,67 +69,116 @@ public function removeRole(Request $request, User $user)
 
     // Store a new user (create employee)
     public function storeUser(Request $request)
-{
-    $validated = $request->validate([
-        'first_name' => 'required|string',
-        'whatsapp_number' => 'required|unique:users',
-        'role'       => 'required|string',
-        'password'   => 'required|string|min:6',
+    {
+        /* ─── 1. Валидация ─── */
+        $validated = $request->validate([
+            'first_name'            => 'required|string',
+            'last_name'             => 'nullable|string',
+            'surname'               => 'nullable|string',
+            'whatsapp_number'       => 'required|unique:users',
+            'role'                  => 'required|in:admin,client,cashbox,packer,storager,courier',
+            'password'              => 'required|string|min:6',
 
-        // Опционально, если нужно:
-        'warehouse_name'        => 'nullable|string',
-        'existing_warehouse_id' => 'nullable|integer|exists:warehouses,id'
-    ]);
+            /* склад (для storager / packer / courier) */
+            'warehouse_name'        => 'nullable|string',
+            'existing_warehouse_id' => 'nullable|uuid|exists:warehouses,id',
+        ]);
 
-    // 1. Создаём пользователя
-    $user = User::create([
-        'first_name'      => $validated['first_name'],
-        'last_name'       => $request->last_name,
-        'surname'         => $request->surname,
-        'whatsapp_number' => $validated['whatsapp_number'],
-        'password'        => Hash::make($validated['password']),
-    ]);
+        $orgId = $request->user()->organization_id;        // организация текущего админа
 
-    // 2. Присваиваем роль
-    $role = Role::where('name', $validated['role'])->first();
-    $user->roles()->attach($role);
+        /* ─── 2. Транзакция ─── */
+        $user = DB::transaction(function () use ($validated, $orgId) {
 
-    // 3. Если пользователь – Кладовщик (storager)
-    if ($validated['role'] === 'storager') {
-        // Если создаём новый склад
-        if (!empty($validated['warehouse_name'])) {
-            Warehouse::create([
-                'name'       => $validated['warehouse_name'],
-                'manager_id' => $user->id,
+            /* 2-A  Создаём пользователя */
+            $user = User::create([
+                'first_name'      => $validated['first_name'],
+                'last_name'       => $validated['last_name']  ?? '',
+                'surname'         => $validated['surname']    ?? '',
+                'whatsapp_number' => $validated['whatsapp_number'],
+                'password'        => Hash::make($validated['password']),
+                'organization_id' => $orgId,
             ]);
-        }
-        // Или назначаем на существующий
-        elseif (!empty($validated['existing_warehouse_id'])) {
-            $wh = Warehouse::find($validated['existing_warehouse_id']);
-            $wh->manager_id = $user->id;
-            $wh->save();
-        }
-    }
-    // 4) Упаковщик (packer) -> packer_id
-    elseif ($validated['role'] === 'packer' && !empty($validated['existing_warehouse_id'])) {
-        $wh = Warehouse::find($validated['existing_warehouse_id']);
-        // Вместо pivot, просто записываем packer_id
-        $wh->packer_id = $user->id;
-        $wh->save();
-    }
-    // 5) Курьер (courier) -> courier_id
-    elseif ($validated['role'] === 'courier' && !empty($validated['existing_warehouse_id'])) {
-        $wh = Warehouse::find($validated['existing_warehouse_id']);
-        // Вместо pivot, просто записываем courier_id
-        $wh->courier_id = $user->id;
-        $wh->save();
-    }
 
-    return response()->json([
-        'message' => 'User created successfully',
-        'user'    => $user->load('roles')
-    ]);
-}
+            /* 2-B  Роль */
+            $role = Role::where('name', $validated['role'])->first();
+            $user->roles()->attach($role);
+
+            /* 2-C  Логика со складами */
+            switch ($validated['role']) {
+
+                /* ----------  storager  ---------- */
+                case 'storager':
+
+                    // 1) Создать новый склад
+                    if (!empty($validated['warehouse_name'])) {
+
+                        // проверка на дубль имени в той же организации
+                        $nameExists = Warehouse::where('organization_id', $orgId)
+                                               ->where('name', $validated['warehouse_name'])
+                                               ->exists();
+                        if ($nameExists) {
+                            throw ValidationException::withMessages([
+                                'warehouse_name' => ['Склад с таким именем уже существует'],
+                            ]);
+                        }
+
+                        Warehouse::create([
+                            'name'            => $validated['warehouse_name'],
+                            'manager_id'      => $user->id,
+                            'organization_id' => $orgId,
+                        ]);
+                    }
+
+                    // 2) Или назначить существующий
+                    elseif (!empty($validated['existing_warehouse_id'])) {
+                        $wh = Warehouse::where('id', $validated['existing_warehouse_id'])
+                                       ->where('organization_id', $orgId)
+                                       ->firstOrFail();
+
+                        $wh->manager_id = $user->id;
+                        $wh->save();
+                    }
+
+                    break;
+
+                /* ----------  packer  ---------- */
+                case 'packer':
+                    if (!empty($validated['existing_warehouse_id'])) {
+                        $wh = Warehouse::where('id', $validated['existing_warehouse_id'])
+                                       ->where('organization_id', $orgId)
+                                       ->firstOrFail();
+
+                        $wh->packer_id = $user->id;
+                        $wh->save();
+                    }
+                    break;
+
+                /* ----------  courier  ---------- */
+                case 'courier':
+                    if (!empty($validated['existing_warehouse_id'])) {
+                        $wh = Warehouse::where('id', $validated['existing_warehouse_id'])
+                                       ->where('organization_id', $orgId)
+                                       ->firstOrFail();
+
+                        $wh->courier_id = $user->id;
+                        $wh->save();
+                    }
+                    break;
+
+                default:
+                    // для admin / client / cashbox — ничего со складами не делаем
+                    break;
+            }
+
+            return $user;
+        });
+
+        /* ─── 3. Ответ ─── */
+        return response()->json([
+            'message' => 'Пользователь успешно создан',
+            'user'    => $user->load('roles'),
+        ], 201);
+    }
 
 
 
@@ -159,19 +211,19 @@ public function removeRole(Request $request, User $user)
         return response()->json(Auth::user());
     }
 
-    public function toggleNotifications(Request $request)
-    {
-        $user = Auth::user();
+    // public function toggleNotifications(Request $request)
+    // {
+    //     $user = Auth::user();
 
-        // Ensure request contains 'notifications' field
-        if ($request->has('notifications')) {
-            $user->notifications = $request->notifications;
-            $user->save();
-            return response()->json(['success' => true, 'message' => 'Notifications updated']);
-        }
+    //     // Ensure request contains 'notifications' field
+    //     if ($request->has('notifications')) {
+    //         $user->notifications = $request->notifications;
+    //         $user->save();
+    //         return response()->json(['success' => true, 'message' => 'Notifications updated']);
+    //     }
 
-        return response()->json(['error' => 'Invalid request'], 400);
-    }
+    //     return response()->json(['error' => 'Invalid request'], 400);
+    // }
 
 
     public function getAdminsAndStoragers()
@@ -240,5 +292,28 @@ private function userPayload(User $u): array
 }
 
     /* helper: что именно отдаём о пользователе  */
+    public function updateStuff(Request $r, User $user)
+    {
+        $data = $r->validate([
+            'roles'        => ['sometimes','array'],
+            'roles.*'      => ['string','exists:roles,name'],
+            'permissions'  => ['sometimes','array'],
+            'permissions.*'=> ['integer','exists:permissions,code'],
+        ]);
 
+        if (array_key_exists('roles',$data)) {
+            $roleIds = Role::whereIn('name',$data['roles'])->pluck('id');
+            $user->roles()->sync($roleIds);
+        }
+
+        if (array_key_exists('permissions',$data)) {
+            $permIds = Permission::whereIn('code',$data['permissions'])->pluck('id');
+            $user->permissions()->sync($permIds);
+        }
+
+        return response()->json([
+            'success'=>true,
+            'user'   => $this->userPayload($user->fresh(['roles','permissions']))
+        ]);
+    }
 }

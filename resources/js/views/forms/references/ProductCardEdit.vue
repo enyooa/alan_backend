@@ -1,58 +1,69 @@
+<!-- src/pages/forms/references/ProductCardEdit.vue -->
 <template>
     <div class="edit-form">
-      <h3>Редактировать карточку товара</h3>
+      <h3 class="title">Редактировать карточку товара</h3>
+
+      <!-- Превью (старое или новое) -->
+      <img
+        v-if="previewUrl"
+        :src="previewUrl"
+        class="thumb"
+        alt="Фото товара"
+      />
+
       <form @submit.prevent="save">
+        <!-- ───── название ───── -->
         <div class="form-group">
-          <label for="name">Название товара:</label>
+          <label for="name_of_products">Название товара</label>
           <input
-            type="text"
+            id="name_of_products"
             v-model="form.name_of_products"
-            id="name"
             required
           />
         </div>
 
+        <!-- ───── описание ───── -->
         <div class="form-group">
-          <label for="description">Описание:</label>
-          <textarea
-            v-model="form.description"
-            id="description"
-          ></textarea>
+          <label for="description">Описание</label>
+          <textarea id="description" v-model="form.description" rows="3" />
         </div>
 
-        <div class="form-group">
-          <label for="country">Страна:</label>
-          <input
-            type="text"
-            v-model="form.country"
-            id="country"
-          />
+        <!-- ───── страна ───── -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="country">Страна</label>
+            <input id="country" v-model="form.country" />
+          </div>
+
+          <div class="form-group">
+            <label for="type">Тип</label>
+            <input id="type" v-model="form.type" />
+          </div>
         </div>
 
+        <!-- ───── новое фото ───── -->
         <div class="form-group">
-          <label for="type">Тип:</label>
+          <label for="photo_product">Фото товара (JPEG / PNG)</label>
           <input
-            type="text"
-            v-model="form.type"
-            id="type"
-          />
-        </div>
-
-        <!-- File input for new photo -->
-        <div class="form-group">
-          <label for="photo_product">Фото товара</label>
-          <input
-            type="file"
             id="photo_product"
-            @change="handleFileUpload"
+            type="file"
+            accept="image/*"
+            @change="handleFile"
           />
         </div>
 
+        <!-- ───── кнопки ───── -->
         <div class="buttons">
-          <button type="submit" :disabled="loading">
-            {{ loading ? "Сохранение..." : "Сохранить" }}
+          <button
+            type="submit"
+            class="btn primary"
+            :disabled="loading"
+          >
+            {{ loading ? "⏳ Сохранение…" : "💾 Сохранить" }}
           </button>
-          <button type="button" @click="$emit('close')">Отмена</button>
+          <button type="button" class="btn danger" @click="$emit('close')">
+            Отмена
+          </button>
         </div>
       </form>
     </div>
@@ -60,122 +71,131 @@
 
   <script>
   import axios from "axios";
+  import { ref } from "vue";
 
   export default {
     name: "ProductCardEdit",
     props: {
-      // We pass in the existing product data
-      operation: {
-        type: Object,
-        default: () => ({}),
-      },
+      operation: { type: Object, required: true },
     },
-    data() {
-      return {
-        // Prepopulate from operation
-        form: {
-          name_of_products: this.operation.name_of_products || "",
-          description: this.operation.description || "",
-          country: this.operation.country || "",
-          type: this.operation.type || "",
-        },
-        photoFile: null, // For storing the new uploaded file
-        loading: false,
-      };
-    },
-    methods: {
-      handleFileUpload(event) {
-        const files = event.target.files;
-        if (files && files.length > 0) {
-          this.photoFile = files[0];
-        }
-      },
-      async save() {
+    setup(props, { emit }) {
+      /* реактивные данные */
+      const form = ref({
+        name_of_products: props.operation.name_of_products ?? "",
+        description: props.operation.description ?? "",
+        country: props.operation.country ?? "",
+        type: props.operation.type ?? "",
+      });
+
+      const photoFile = ref(null);
+      const previewUrl = ref(props.operation.photo_url || null);
+      const loading = ref(false);
+
+      /* ─── handlers ─── */
+      function handleFile(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        photoFile.value = file;
+        previewUrl.value = URL.createObjectURL(file); // локальный превью
+      }
+
+      async function save() {
+        loading.value = true;
         try {
-          this.loading = true;
-          const token = localStorage.getItem("token");
-          if (!token) {
-            alert("Токен не найден, авторизуйтесь.");
-            return;
-          }
+          const fd = new FormData();
+          fd.append("_method", "PATCH");
+          Object.entries(form.value).forEach(([k, v]) => fd.append(k, v));
+          if (photoFile.value) fd.append("photo_product", photoFile.value);
 
-          // 1) Create a FormData object
-          const formData = new FormData();
+          const { data } = await axios.post(
+            `/api/references/productCard/${props.operation.id}`,
+            fd,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
 
-          // 2) Add _method = PATCH
-          formData.append("_method", "PATCH");
-
-          // 3) Add all your fields
-          formData.append("name_of_products", this.form.name_of_products);
-          formData.append("description", this.form.description);
-          formData.append("country", this.form.country);
-          formData.append("type", this.form.type);
-
-          // 4) If user selected a new photo:
-          if (this.photoFile) {
-            formData.append("photo_product", this.photoFile);
-          }
-
-          // 5) Instead of PATCH, call axios.post(...), letting _method=PATCH do the override
-          const url = `/api/references/productCard/${this.operation.id}`;
-          const response = await axios.post(url, formData, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "multipart/form-data",
-            },
-          });
-
-          // 6) If successful, emit 'saved' with the updated data
-          this.$emit("saved", response.data);
-        } catch (error) {
-          console.error("Ошибка при сохранении:", error);
-          alert("Ошибка при сохранении данных.");
+          emit("saved", data); // вернём изменённую запись
+        } catch (err) {
+          console.error(err);
+          alert("Не удалось сохранить изменения");
         } finally {
-          this.loading = false;
+          loading.value = false;
         }
-      },
+      }
+
+      return { form, photoFile, previewUrl, loading, handleFile, save };
     },
   };
   </script>
 
   <style scoped>
   .edit-form {
-    padding: 20px;
-    max-width: 500px;
+    padding: 24px;
+    max-width: 520px;
     margin: 0 auto;
+  }
+  .title {
+    margin-bottom: 20px;
+    text-align: center;
+    color: #0288d1;
   }
   .form-group {
     margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
   }
   label {
-    display: block;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
+    font-weight: 600;
   }
   input,
   textarea {
-    width: 100%;
-    padding: 8px;
-    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    font-size: 14px;
+    resize: vertical;
+  }
+  .thumb {
+    max-width: 130px;
+    max-height: 130px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
   }
   .buttons {
     display: flex;
-    gap: 10px;
-    margin-top: 15px;
+    gap: 12px;
+    margin-top: 8px;
   }
-  button {
-    padding: 10px 15px;
+  .btn {
+    flex: 1;
+    padding: 10px 0;
     border: none;
-    border-radius: 5px;
+    border-radius: 6px;
+    font-size: 14px;
     cursor: pointer;
   }
-  button[type="submit"] {
-    background-color: #0288d1;
+  .primary {
+    background: #0288d1;
     color: #fff;
-    flex: 1;
   }
-  button[type="button"] {
-    background-color: #f44336;
+  .danger {
+    background: #e53935;
     color: #fff;
-    flex: 1;
+  }
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   </style>

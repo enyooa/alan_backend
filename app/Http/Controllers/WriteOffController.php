@@ -198,9 +198,9 @@ class WriteOffController extends Controller
 {
     // 1) Validate the “header” data
     $data = $request->validate([
-        'provider_id'           => 'nullable|integer',
+        'provider_id'           => 'nullable|uuid',
         'document_date'         => 'nullable|date',
-        'assigned_warehouse_id' => 'nullable|integer', // or to_warehouse_id
+        'assigned_warehouse_id' => 'nullable|uuid', // or to_warehouse_id
         // etc.
     ]);
 

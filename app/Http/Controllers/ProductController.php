@@ -65,9 +65,9 @@ public function update(Request $request, Document $document)
 {
     // 1) Validate the “header” data
     $data = $request->validate([
-        'provider_id'          => 'nullable|integer',
+        'provider_id'          => 'nullable|uuid',
         'document_date'        => 'nullable|date',
-        'assigned_warehouse_id'=> 'nullable|integer', // or to_warehouse_id
+        'assigned_warehouse_id'=> 'nullable|uuid', // or to_warehouse_id
         // etc.
     ]);
 
@@ -212,9 +212,9 @@ public function updateMobileIncome(Request $request, $id)
 
         // 2) Validate the header fields from the request
         $data = $request->validate([
-            'provider_id'           => 'nullable|integer',
+            'provider_id'           => 'nullable|uuid',
             'document_date'         => 'nullable|date',
-            'assigned_warehouse_id' => 'nullable|integer',
+            'assigned_warehouse_id' => 'nullable|uuid',
             // etc.
         ]);
 

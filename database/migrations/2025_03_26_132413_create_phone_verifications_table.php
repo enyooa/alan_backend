@@ -8,7 +8,11 @@ return new class extends Migration
     public function up()
     {
         Schema::create('phone_verifications', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('phone_number'); // "7076069831"
             $table->string('code');         // e.g. "1234"
             $table->timestamps();

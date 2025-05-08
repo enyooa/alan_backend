@@ -15,6 +15,7 @@ use App\Http\Controllers\BasketController;
     use App\Http\Controllers\ExpenseController;
     use App\Http\Controllers\FavoritesController;
     use App\Http\Controllers\InventoryController;
+    use App\Http\Controllers\SalesClientController;
 
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\PackerController;
@@ -25,37 +26,46 @@ use App\Http\Controllers\BasketController;
     use App\Http\Controllers\StorageController;
     use App\Http\Controllers\FinancialElementController;
 use App\Http\Controllers\FinancialSummaryController;
+use App\Http\Controllers\IncomesController;
 use App\Http\Controllers\PermissionAssignmentController;
 use App\Http\Controllers\PriceOfferController;  // HEAD line
     use App\Http\Controllers\ProductController;      // HEAD line
     use App\Http\Controllers\ProfileController;      // HEAD line
     use App\Http\Controllers\ReferenceController;    // HEAD line
     use App\Http\Controllers\ReportsController;
-    use App\Http\Controllers\WarehousesController;
+use App\Http\Controllers\SalesIncomesController;
+use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\WarehousesController;
     use App\Http\Controllers\WhatsAppCheckController;
-    use App\Models\FinancialOrder;
+use App\Http\Controllers\WriteoffIncomesController;
+use App\Http\Controllers\TransferIncomesController;
+use App\Http\Controllers\AdminCashController;
+
+
+
+use App\Models\FinancialOrder;
 
     /**
      * Chat Routes
      */
-    Route::post('/send-message', [ChatController::class, 'sendMessage']);
-    Route::get('messages', [ChatController::class, 'getMessages']);
 
     /**
      * Courier Routes
      */
-    Route::middleware(['auth:sanctum', 'role:courier'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:courier,superadmin'])->group(function () {
+        Route::post('/send-message', [ChatController::class, 'sendMessage']);
+        Route::get('messages', [ChatController::class, 'getMessages']);
+
     Route::get('getCourierOrders', [CourierController::class, 'getCourierOrders']);
     Route::post('storeCourierDocument', [CourierController::class, 'storeCourierDocument']);
     Route::get('courier/orders/{orderId}', [CourierController::class, 'getCourierOrderDetails']);
     Route::post('/courier/orders/{orderId}/deliver', [CourierController::class, 'submitCourierDelivery']);
     });
 
-    /**
-        * Auth
-        */
+
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/register_organization_with_user',[AuthController::class,'registerOrganization']);
     Route::post('/check-whatsapp', [WhatsAppCheckController::class, 'checkWhatsApp']);
     Route::post('/send_verification_code', [AuthController::class, 'sendVerificationCode']);
     Route::post('/verify_code', [AuthController::class, 'verifyCode']);
@@ -74,6 +84,8 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     * Authenticated (Sanctum) Routes
     */
     Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/plan/buy', [SubscriptionController::class, 'buyPlan']);
+
     Route::post('/upload-photo', [ProfileController::class, 'uploadPhoto']);
     Route::get('/profile', [ProfileController::class, 'getProfile']);
     Route::put('/profile', [ProfileController::class, 'updateProfile']);
@@ -87,7 +99,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
    /**
     * Admin Routes
     */
-    Route::middleware(['auth:sanctum', 'role:admin,superadmin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:admin,superadmin,storager'])->group(function () {
    /**
     * Product Cards
     */
@@ -127,9 +139,6 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     // Route::put('update_providers', [AdminController::class,'updateProvider']);
     // Route::delete('delete_providers', [AdminController::class,'deleteProvider']);
 
-   /**
-    * Users & Roles
-    */
     Route::put('/users/{user}/assign-roles', [UserController::class, 'assignRoles']);
     Route::delete('/users/{user}/remove-role', [UserController::class, 'removeRole']);
     Route::post('/create-account', [AuthController::class, 'createAccount']);
@@ -158,11 +167,11 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
    /**
     * Sales
     */
-    Route::get('sales', [SalesController::class, 'getSalesWithDetails']);
     // Route::post('sales', [SalesController::class, 'store']);
-    Route::post('sales', [SalesController::class, 'bulkStore']);
-    Route::put('/sales/{id}', [SalesController::class, 'update']);
-    Route::delete('/sales/{id}', [SalesController::class, 'destroy']);
+    Route::post('sales', [SalesClientController::class, 'bulkStore']);
+    Route::put('/sales/{sale}',  // <-- Указываем {sale}, а не {id}
+     [SalesClientController::class, 'update']);
+    Route::delete('/sales/{sale}', [SalesClientController::class, 'destroy']);
 
    /**
     * Price Offer
@@ -185,8 +194,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
 
     // Получение списка документов
     Route::get('/documents', [ProductController::class, 'index']);
-    // Получение одного документа (с items и expenses)
-    // Обновление документа
+
     Route::put('/documents/{document}', [ProductController::class, 'update']);
     // Удаление документа
     Route::delete('/documents/{document}', [ProductController::class, 'destroy']);
@@ -198,12 +206,13 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     */
     Route::get('/references/{type}', [ReferenceController::class, 'fetch']);
     Route::patch('/references/{type}/{id}', [ReferenceController::class, 'update']);
-    Route::delete('/references/{type}/{id}', [ReferenceController::class, 'destroy']);
+    Route::delete('/reference', [ReferenceController::class, 'bulkDestroy']);   // bulk
     Route::get('/references/{type}/{id}', [ReferenceController::class, 'fetchOne']);
+    Route::delete('/references/{type}/{id}', [ReferenceController::class, 'destroyOne']);
+    Route::patch('/references',               [ReferenceController::class, 'bulkUpdate']);      // массив разных типов
+Route::patch('/references/{type}',        [ReferenceController::class, 'bulkUpdate']);      // массив одного типа
 
-   /**
-    * Storage
-    */
+
     Route::get('getStorageUsers',[StorageController::class,'getStorageUsers']);
    // Инициализация для перемещения (получение остатков "От кого" user)
 //    старая ветка перемещение
@@ -270,6 +279,7 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
      */
     Route::middleware(['auth:sanctum', 'role:client,admin,superadmin'])->group(function () {
         Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
+        Route::get('sales', [SalesClientController::class, 'getSalesWithDetails']);
 
     });
 
@@ -288,28 +298,40 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
     // Basket
     Route::get('basket', [BasketController::class, 'index']);
     Route::post('basket/add', [BasketController::class, 'add']);
-    Route::post('basket/remove', [BasketController::class, 'remove']);
+    // routes/api.php
+    Route::delete('basket/{id}', [BasketController::class, 'destroy']);
     Route::post('basket/clear', [BasketController::class, 'clear']);
     Route::post('basket/place-order', [BasketController::class, 'placeOrder']);
+    Route::post('/basket/quantity', [BasketController::class, 'changeQuantity']);
+
 
     // Favorites
     Route::get('getFavorites', [FavoritesController::class, 'getFavorites']);
     Route::post('addToFavorites', [FavoritesController::class, 'addToFavorites']);
-    Route::post('removeFromFavorites', [FavoritesController::class, 'removeFromFavorites']);
+    // routes/api.php
+    Route::delete(
+        'favorites/{favorite}',   // {favorite} → ID из таблицы favorites
+        [FavoritesController::class, 'destroy']
+    );
     Route::get('report_debs', [ClientController::class, 'report_debs']);
+    // routes/api.php
+    Route::post('/favorites/{favorite}/add-to-basket',       // ← {favorite} is the ID in the favorites table
+    [FavoritesController::class, 'addToBasket']
+    );
 
     // cashbox
-    Route::post('financial-order', [FinancialElementController::class, 'storeFinancialOrder']);
+    Route::post('financial-order', [FinancialElementController::class, 'storeFinancialOrders']);
 
     });
 
     /**
      * Cashbox & Admin
      */
-    Route::middleware(['auth:sanctum', 'role:cashbox,admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:cashbox,admin,superadmin'])->group(function () {
+        Route::get('/reference/cashbox', [ReferenceController::class,'cashbox']);   // NEW
 
     });
-    Route::middleware(['auth:sanctum', 'role:cashbox,client'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:cashbox,client,superadmin'])->group(function () {
     Route::get('/financial-elements', [FinancialElementController::class, 'index']);
 
 });
@@ -317,21 +339,26 @@ use App\Http\Controllers\PriceOfferController;  // HEAD line
 /**
  * Packer Routes
  */
-Route::middleware(['auth:sanctum', 'role:packer'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:packer,superadmin'])->group(function () {
     Route::get('history_orders', [OrderController::class, 'getHistoryOrders']);
     Route::get('/packer_document/{id}', [PackerController::class, 'get_packer_document']);
 
     Route::get('/packer/orders', [OrderController::class, 'getPackerOrders']);
+    Route::get('/packer/orders/history', [OrderController::class, 'getPackerHistory']);
+
     Route::put('packer/orders/{orderId}/products', [OrderController::class, 'updateOrderProducts']);
     Route::get('packer/orders/{orderId}/', [OrderController::class, 'getDetailedOrder']);
-
+// старая
     Route::post('/storeInvoice', [OrderController::class, 'storeInvoice']);
     Route::get('/getInvoice', [OrderController::class, 'getInvoice']);
-
+ // старая
     Route::post('/create_packer_document', [PackerController::class, 'create_packer_document']);
     Route::get('generalWarehouse', [PackerController::class, 'generalWarehouse']);
     Route::get('getAllPackerInstances',[PackerController::class,'getAllInstances']);
     Route::get('getPackerReportPage',[PackerController::class,'getManagerWarehouseReport']);
+
+    Route::get('/couriers', [PackerController::class, 'allCouriers']);
+
 });
 
 /**
@@ -392,7 +419,7 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
  * Twilio Verification (HEAD)
  */
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
-    Route::middleware(['auth:sanctum', 'role:superadmin,admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:superadmin,admin,cashbox,storager'])->group(function () {
 
     Route::prefix('financial-summary')->group(function () {
         Route::get('day',   [FinancialSummaryController::class, 'day']);    // ?date=YYYY‑MM‑DD
@@ -411,9 +438,9 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
 
     Route::get('/reference', [ReferenceController::class,'index']);   // NEW
     Route::get('/reference/{type}', [ReferenceController::class, 'getReferencesByType']);
-    Route::post('/reference', [ReferenceController::class, 'storeWithItems']);
+    Route::post('/reference', [ReferenceController::class, 'bulkStore']);
 
-    Route::patch('/reference/{id}', [ReferenceController::class, 'update']);
+    Route::patch('/reference/{id}', [ReferenceController::class, 'bulkUpdate']);
     Route::delete('/reference/{id}', [ReferenceController::class, 'destroy']);
 
     Route::get('/reference/{type}/{id}', [ReferenceController::class, 'fetchOne']);
@@ -431,19 +458,20 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
 
     // сотрудники
     Route::get('stuff', [UserController::class, 'stuff']);
-
+    Route::put('/users/{user}/roles-permissions', [UserController::class,'updateStuff']);
 
     // фин ордер
     Route::post('/financial-elements', [FinancialElementController::class, 'store']);
-    Route::put('/financial-elements/{id}', [FinancialElementController::class, 'update']);
-    Route::delete('/financial-elements/{id}', [FinancialElementController::class, 'destroy']);
+    Route::put    ('/financial-elements/{element}',    [FinancialElementController::class, 'update' ]);
+    Route::patch  ('/financial-elements/{element}',    [FinancialElementController::class, 'update' ]);
+    Route::delete ('/financial-elements/{element}',    [FinancialElementController::class, 'destroy']);
     Route::get('/financial-elements',                [FinancialElementController::class, 'index']);
 
     // only “income” or only “expense” for the current user
     Route::get('/financial-elements/{type}',         [FinancialElementController::class, 'byType'])
      ->where('type', 'income|expense');
-
-    //  new Superadmin uses 24.04.2025
+     Route::get ('/get-cashes', [AdminCashController::class, 'index']);
+     Route::post('/create-cashes', [AdminCashController::class, 'store']);    //  new Superadmin uses 24.04.2025
     Route::get('/client-users', [AdminController::class, 'getClientUsers']);
 
     Route::get('/client-users', [AdminController::class, 'getClientUsers']);
@@ -474,44 +502,44 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     // приход товара
     Route::get('income-products',[DocumentController::class,'indexIncomes']);
     //приход товара
-    Route::post('/income-products', [AdminController::class, 'storeIncomes']);
-    Route::put('/income-products/{document}', [AdminController::class, 'updateIncomes'])
+    Route::post('/income-products', [IncomesController::class, 'storeIncomes']);
+    Route::put('/income-products/{document}', [IncomesController::class, 'updateIncomes'])
     ->whereNumber('document');
     Route::delete('/income-products/{document}',        // URL
-    [DocumentController::class,'destroyIncomes'])   // method
+    [IncomesController::class,'destroyIncomes'])   // method
 ->whereNumber('document');
 
     // продажа
 
-    Route::get('sales-products',[DocumentController::class,'indexSales']);
-    Route::post('sales-products',[DocumentController::class,'postSales']);
-    Route::put('/sales-products/{document}', [DocumentController::class, 'updateSales'])
+    Route::get('sales-products',[SalesIncomesController::class,'indexSales']);
+    Route::post('sales-products',[SalesIncomesController::class,'postSales']);
+    Route::put('/sales-products/{document}', [SalesIncomesController::class, 'updateSales'])
      ->whereNumber('document');
 
     Route::delete('/sales-products/{document}',        // URL
-    [DocumentController::class,'destroySales'])   // method
+    [SalesIncomesController::class,'destroySales'])   // method
     ->whereNumber('document');
 
     // списание
-    Route::post('writeoff-products',[DocumentController::class,'postWriteOff']);
-    Route::put('/writeoff-products/{document}', [DocumentController::class, 'updateWriteOff'])
+    Route::post('writeoff-products',[WriteoffIncomesController::class,'postWriteOff']);
+    Route::put('/writeoff-products/{document}', [WriteoffIncomesController::class, 'updateWriteOff'])
     ->whereNumber('document');
 
-    Route::get('writeoff-products',[DocumentController::class,'indexWriteOff']);
+    Route::get('writeoff-products',[WriteoffIncomesController::class,'indexWriteOff']);
 
-    Route::delete('/writeoff-products/{document}', [DocumentController::class, 'deleteWriteOff'])
+    Route::delete('/writeoff-products/{document}', [WriteoffIncomesController::class, 'deleteWriteOff'])
         ->whereNumber('document');
 
     // перемещение
-    Route::get('/transfer-products', [DocumentController::class,'indexTransfers']);
-    Route::post('/transfer-products',       [DocumentController::class,'storeTransfer']);
+    Route::get('/transfer-products', [TransferIncomesController::class,'indexTransfers']);
+    Route::post('/transfer-products',       [TransferIncomesController::class,'storeTransfer']);
 
     /* обновить */
-    Route::put('transfer-products/{document}', [DocumentController::class,'updateTransfer'])
+    Route::put('transfer-products/{document}', [TransferIncomesController::class,'updateTransfer'])
          ->whereNumber('document');
 
     /* удалить */
-    Route::delete('transfer-products/{document}', [DocumentController::class,'destroyTransfer'])
+    Route::delete('transfer-products/{document}', [TransferIncomesController::class,'destroyTransfer'])
          ->whereNumber('document');
 
     Route::prefix('price-offers')->group(function () {

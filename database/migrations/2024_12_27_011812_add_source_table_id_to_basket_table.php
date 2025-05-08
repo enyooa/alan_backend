@@ -14,7 +14,7 @@ class AddSourceTableIdToBasketTable extends Migration
     public function up()
     {
         Schema::table('baskets', function (Blueprint $table) {
-            $table->unsignedBigInteger('source_table_id')->nullable()->after('source_table');
+            $table->uuid('source_table_id')->nullable()->after('source_table');
         });
     }
 

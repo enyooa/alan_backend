@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;  // ← import Str
 
 class PriceOfferItem extends Model
 {
-    protected $table = 'price_offer_items';
+    protected $table = 'price_offers_items';
 
     protected $fillable = [
         'price_offer_order_id',
@@ -16,6 +17,16 @@ class PriceOfferItem extends Model
         'amount',             // количество
         'price',              // цена за единицу
     ];
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     public function priceOfferOrder(): BelongsTo
     {
         return $this->belongsTo(PriceOfferOrder::class, 'price_offer_order_id');
@@ -25,15 +36,13 @@ class PriceOfferItem extends Model
     {
         return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
     }
-    public function unitRef(): BelongsTo
-    {
-        return $this->belongsTo(ReferenceItem::class,
-                                'unit_measurement', 'name');
-        // <─ связываемся по NAME
-    }
+    public function unit(): BelongsTo
+{
+    return $this->belongsTo(Unit_measurement::class, 'unit_measurement', 'name');
+}
     public function product(): BelongsTo
-    {
-        return $this->belongsTo(ReferenceItem::class,
-                                'product_subcard_id');
-    }
+{
+    return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
+}
+
 }

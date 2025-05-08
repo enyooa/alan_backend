@@ -15,9 +15,17 @@ class CreateRoleUserTable extends Migration
     {
         Schema::create('role_user', function (Blueprint $table) {
             $table->id();
-            $table->integer('user_id');
-            $table->integer('role_id');
+            // Use the same UUID type as users.id and roles.id
+            $table->foreignUuid('user_id')
+                  ->constrained('users')
+                  ->cascadeOnDelete();
+
+            $table->foreignUuid('role_id')
+                  ->constrained('roles')
+                  ->cascadeOnDelete();
             $table->timestamps();
+            $table->unique(['user_id', 'role_id']);
+
         });
     }
 

@@ -25,6 +25,7 @@
     },
     "dependencies": {
         "@mdi/js": "^7.4.47",
+        "chart.js": "^4.4.9",
         "laravel-echo": "^1.17.0",
         "primeicons": "^7.0.0",
         "socket.io-client": "^4.8.1",

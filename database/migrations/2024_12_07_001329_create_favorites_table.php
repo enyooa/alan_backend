@@ -14,9 +14,16 @@ class CreateFavoritesTable extends Migration
     public function up()
     {
         Schema::create('favorites', function (Blueprint $table) {
-            $table->id();
-            $table->integer('user_id'); // User who favorited the product
-            $table->integer('product_subcard_id'); // The product being favorited
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
+            $table->foreignUuid('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('product_subcard_id')
+            ->constrained('product_sub_cards')
+            ->cascadeOnDelete();
+
             $table->timestamps();
  });
     }

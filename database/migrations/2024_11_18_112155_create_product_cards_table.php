@@ -15,12 +15,16 @@ class CreateProductCardsTable extends Migration
     {
         // карточка товара
         Schema::create('product_cards', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name_of_products');
             $table->string('description')->nullable();
             $table->string('country')->nullable();
             $table->string('type')->nullable();
-            
+
             $table->string('photo_product')->nullable();
                 $table->timestamps();
         });

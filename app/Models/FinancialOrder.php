@@ -3,13 +3,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class FinancialOrder extends Model
 {
     use HasFactory;
-
+    public $incrementing = false;
+    protected $keyType   = 'string';
     protected $table = 'financial_orders';
-
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     protected $fillable = [
         'type',
         'admin_cash_id',
@@ -20,6 +29,8 @@ class FinancialOrder extends Model
         'summary_cash',
         'date_of_check',
         'photo_of_check',
+        'organization_id',
+        'auth_user_id',
     ];
 
     // Define relationships if needed

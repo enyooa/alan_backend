@@ -81,36 +81,7 @@ class StorageController extends Controller
 
 
 
-    public function fetchSalesReport()
-{
-    // Получаем текущего пользователя
-    $authUserId = Auth::id();
 
-    // 1. Фильтруем DocumentRequest так, чтобы брать только те записи,
-    //    которые принадлежат текущему пользователю (если в DocumentRequest есть 'auth_user_id')
-    $sales = DocumentRequest::with('productSubcard', 'unitMeasurement')
-        ->where('auth_user_id', $authUserId)
-        ->get()
-        ->map(function ($sale) use ($authUserId) {
-            // 2. Находим остаток в GeneralWarehouse для этого subcard,
-            //    тоже привязанный к auth_user_id, если у нас там есть это поле
-            $remainingQuantity = GeneralWarehouse::where('auth_user_id', $authUserId)
-                ->where('product_subcard_id', $sale->product_subcard_id)
-                ->sum('quantity');
-
-            // Формируем массив для каждой строки
-            return [
-                'product'   => $sale->productSubcard->name ?? 'Unknown',
-                'unit'      => $sale->unitMeasurement->name ?? 'Unknown',
-                'quantity'  => $sale->amount ?? 0,
-                'price'     => $sale->price ?? 0,
-                'total'     => ($sale->amount ?? 0) * ($sale->price ?? 0),
-                'remaining' => $remainingQuantity ?? 0,
-            ];
-        });
-
-    return response()->json(['sales' => $sales]);
-}
 
 public function storeIncomeAsWarehouseManager(Request $request)
 {
@@ -353,11 +324,11 @@ public function storageSalesBulkStore(Request $request)
     // 1) Validate request
     $data = $request->validate([
         'sales' => 'required|array|min:1',
-        'sales.*.client_id'                => 'required|integer|exists:users,id',
+        'sales.*.client_id'                => 'required|uuid|exists:users,id',
         'sales.*.document_date'            => 'nullable|date',
         'sales.*.items'                    => 'required|array|min:1',
-        'sales.*.items.*.product_subcard_id' => 'required|integer|exists:product_sub_cards,id',
-        'sales.*.items.*.unit_id'          => 'required|integer|exists:unit_measurements,id',
+        'sales.*.items.*.product_subcard_id' => 'required|uuid|exists:product_sub_cards,id',
+        'sales.*.items.*.unit_id'          => 'required|uuid|exists:unit_measurements,id',
         'sales.*.items.*.quantity'         => 'required|numeric',
         'sales.*.items.*.brutto'           => 'required|numeric',
         'sales.*.items.*.netto'            => 'required|numeric',
@@ -465,7 +436,7 @@ public function updateSale(Request $request, $docId)
     // Validate
     $validated = $request->validate([
         'doc_type' => 'required|in:sale',    // or skip if always 'sale'
-        'client_id' => 'required|integer',
+        'client_id' => 'required|uuid',
         'document_date' => 'required|date',
         'items' => 'required|array|min:1',
         // 'items.*.product_subcard_id','items.*.unit_id','items.*.quantity' ...

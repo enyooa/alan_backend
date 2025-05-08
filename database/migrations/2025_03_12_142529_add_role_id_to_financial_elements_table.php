@@ -15,7 +15,12 @@ class AddRoleIdToFinancialElementsTable extends Migration
     {
         Schema::table('financial_elements', function (Blueprint $table) {
             // Add the role_id column (unsignedBigInteger if referencing roles.id)
-            $table->unsignedBigInteger('role_id')->nullable()->after('type');
+            $table->foreignUuid('role_id')
+            ->nullable()
+            ->after('type')
+            ->constrained('roles')
+            ->nullOnDelete();
+
         });
     }
 

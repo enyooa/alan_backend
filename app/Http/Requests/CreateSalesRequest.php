@@ -25,7 +25,7 @@ class CreateSalesRequest extends FormRequest
     {
         return [
             'product_id' => 'required|exists:basic_products_prices,id',
-            'client_id' => 'nullable|integer',
+            'client_id' => 'nullable|uuid',
             'quantity_sold' => 'required|numeric',
             'price_at_sale' => 'required|integer',
         ];

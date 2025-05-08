@@ -2,9 +2,12 @@
 
 namespace App\Providers;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Gate;          // ← ①  import
+
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -35,5 +38,8 @@ class AppServiceProvider extends ServiceProvider
             'price_requests' => 'App\Models\PriceRequest',
             // Add other models as needed
         ]);
+        Gate::define('perm', function (User $user, string $code) {
+            return $user->hasPermissionDeep($code);
+        });
     }
 }

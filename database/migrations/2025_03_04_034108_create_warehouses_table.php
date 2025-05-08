@@ -14,10 +14,16 @@ class CreateWarehousesTable extends Migration
     public function up()
     {
         Schema::create('warehouses', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name');
-            $table->string('manager_id');
-
+            $table->foreignUuid('manager_id')
+            ->nullable()
+            ->constrained('users')
+            ->nullOnDelete();
             $table->timestamps();
         });
     }

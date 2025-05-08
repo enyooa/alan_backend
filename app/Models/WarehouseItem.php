@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;  // ← import Str
 
 class WarehouseItem extends Model
 {
@@ -21,9 +22,20 @@ class WarehouseItem extends Model
         'price',
         'total_sum',
         'additional_expenses',
-        'cost_price' ,       
+        'cost_price' ,
+        'document_id'
     ];
+    public $incrementing = false;
+    protected $keyType   = 'string';
 
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     // ссылка на шапку
     public function warehouse()
     {
@@ -35,4 +47,6 @@ class WarehouseItem extends Model
     {
         return $this->belongsTo(ProductSubCard::class, 'product_subcard_id');
     }
+    public function unit()              { return $this->belongsTo(Unit_measurement::class, 'unit_measurement_id'); }
+
 }

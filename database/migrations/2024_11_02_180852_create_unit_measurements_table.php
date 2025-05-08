@@ -15,9 +15,13 @@ class CreateUnitMeasurementsTable extends Migration
     {
         // единица измерения
         Schema::create('unit_measurements', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name');
-            $table->double('tare')->nullable()->after('name');  // Change 'after' to place the column where you'd like
+            $table->double('tare')->nullable();  // Change 'after' to place the column where you'd like
             $table->timestamps();
         });
     }

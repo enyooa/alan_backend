@@ -4,16 +4,28 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Order extends Model
 {
     use HasFactory;
+    public $incrementing = false;
+    protected $keyType   = 'string';
+    protected static function booted(): void
+    {
+        static::creating(function (Model $model) {
+            if (! $model->getKey()) {
+                $model->setAttribute($model->getKeyName(), (string) Str::uuid());
+            }
+        });
+    }
     protected $fillable = [
         'user_id',
         'status_id',
         'address',
         'packer_id',
         'courier_id',
+        'organization_id'
 
     ];
     public function packer()

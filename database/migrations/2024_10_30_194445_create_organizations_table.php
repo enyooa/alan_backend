@@ -15,7 +15,8 @@ class CreateOrganizationsTable extends Migration
     {
         // организаторы
         Schema::create('organizations', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+
             $table->string('name');
             $table->string('current_accounts');// текущий счет админ
             $table->string('address')->nullable();

@@ -21,9 +21,15 @@ class CourierController extends Controller
         $courierId = $request->user()->id;
 // $tenantId = $request->user()->tenant_id;
         // 1. Fetch courier orders
-        $orders = Order::with(['orderProducts.productSubCard.productCard'])
+        $orders = Order::with([
+            'orderProducts.productSubCard.productCard',
+            'packer:id,first_name,last_name,photo',
+                    'courier:id,first_name,last_name,photo',
+                    'client:id,first_name,last_name',
+
+            ])
             ->whereNotNull('packer_id')
-            ->where('tenant_id')
+            // ->where('tenant_id')
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -161,47 +167,44 @@ public function getCourierOrderDetails(Request $request, $orderId)
 
 public function storeCourierDocument(Request $request)
 {
+    Log::info($request->all());
 
-        Log::info($request->all());
+    /* 1) Validate incoming data ───────────────────────────────────────── */
+    $validated = $request->validate([
+        'order_id'                    => ['required', 'uuid', 'exists:orders,id'],          // ⬅ uuid
+        'products'                    => ['required', 'array', 'min:1'],
+        'products.*.order_item_id'    => ['required', 'uuid', 'exists:order_items,id'],     // ⬅ uuid
+        'products.*.courier_quantity' => ['required', 'integer', 'min:1'],
+    ]);
 
-        // 1) Validate incoming data
-        $validated = $request->validate([
-            'order_id' => 'required|exists:orders,id',
-            'products' => 'required|array|min:1',
-            'products.*.order_item_id'    => 'required|integer|exists:order_items,id',
-            'products.*.courier_quantity' => 'required|integer|min:1',
-        ]);
+    /* 2) Retrieve the order */
+    $order = Order::findOrFail($validated['order_id']);
 
-        // 2) Retrieve the order
-        $order = Order::findOrFail($validated['order_id']);
+    /* 3) Assign the courier and set status = «ожидание» ----------------- */
+    $waitingStatusId = StatusDoc::where('name', 'ожидание')->value('id');  // ⬅ ищем id
+    $order->courier_id = Auth::id();      // logged-in courier
+    $order->status_id  = $waitingStatusId;   // ⬅ вместо жёсткого 3
+    $order->save();
 
-        // 3) Assign the courier and optionally update status
-        $order->courier_id = Auth::id(); // The logged-in courier's user ID
-        $order->status_id  = 3;          // e.g. 3 => 'Передано курьеру'
-        $order->save();
+    /* 4) Update each order item ---------------------------------------- */
+    foreach ($validated['products'] as $itemData) {
+        $orderItem = OrderItem::where('id', $itemData['order_item_id'])
+                              ->where('order_id', $order->id)
+                              ->first();
 
-        // 4) Update each order item's fields
-        foreach ($validated['products'] as $itemData) {
-            // Make sure the item is part of this order
-            $orderItem = OrderItem::where('id', $itemData['order_item_id'])
-                ->where('order_id', $order->id)
-                ->first();
-
-            if ($orderItem) {
-                $orderItem->courier_quantity = $itemData['courier_quantity'];
-                $orderItem->save();
-            }
+        if ($orderItem) {
+            $orderItem->courier_quantity = $itemData['courier_quantity'];
+            $orderItem->save();
         }
+    }
 
-        // 5) Return success response with fresh data
-        return response()->json([
-            'success' => true,
-            'message' => 'Courier data updated successfully.',
-            'order'   => $order->fresh('orderItems'),
-        ], 201);
-
+    /* 5) Respond -------------------------------------------------------- */
+    return response()->json([
+        'success' => true,
+        'message' => 'Courier data updated successfully.',
+        'order'   => $order->fresh('orderItems'),
+    ], 201);
 }
-
 
 
 

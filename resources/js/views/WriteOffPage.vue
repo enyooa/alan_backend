@@ -236,14 +236,14 @@ export default {
     }
 
     // Fetch units
-    async function fetchUnits() {
-      try {
-        const resp = await axios.get("/api/unit-measurements");
-        units.value = resp.data;
-      } catch (err) {
-        console.error("Ошибка при загрузке единиц измерения:", err);
-      }
-    }
+    async function fetchUnits () {
+  const { data } = await axios.get('/api/reference/unit')
+  units.value = data.map(u => ({
+    id: u.id,
+    name: u.name,
+    tare: Number(u.value) || 0
+  }))
+}
 
     // When user selects a warehouse, load leftovers from `warehouse_items`
     async function onSourceWarehouseChange() {
@@ -256,7 +256,7 @@ export default {
         const resp = await axios.get("/api/warehouse-items", {
           params: { warehouse_id: selectedSourceWarehouse.value }
         });
-        leftovers.value = resp.data; 
+        leftovers.value = resp.data;
       } catch (err) {
         console.error("Ошибка при загрузке остатков:", err);
       }

@@ -5,8 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Document;
 use App\Models\DocumentItem;
 use App\Models\Order;
-use App\Models\OrderItem;
-use App\Models\PackerDocument;
+
 use App\Models\StatusDoc;
 use App\Models\Warehouse;
 use App\Models\WarehouseItem;
@@ -32,27 +31,79 @@ class OrderController extends Controller
     public function getPackerOrders()
 {
     try {
-        // 1) Fetch orders where packer_document_id is NULL
-        $orders = Order::with(['orderProducts.productSubCard.productCard'])
-            // ->whereNull('packer_id')
-            ->get();
+        /* 1. Организация текущего пользователя */
+        $orgId = Auth::user()->organization_id;
 
-        // 2) Fetch all statuses
-        $statuses = StatusDoc::all();
+        /* 2. Берём UUID статуса «на фасовке» */
+        $packingStatusId = StatusDoc::where('name', 'на фасовке')->value('id');
 
-        // 3) Return both in one JSON response
+        if (!$packingStatusId) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Статус «на фасовке» не найден в таблице status_docs',
+            ], 500);
+        }
+
+        /* 3. Заказы этой организации со статусом «на фасовке» */
+        $orders = Order::with([
+                        'orderProducts.productSubCard.productCard',
+                        'packer:id,first_name,last_name,photo',
+                        'courier:id,first_name,last_name,photo',
+                        'client:id,first_name,last_name',
+                        'statusDoc:id,name',                 // связь Order → StatusDoc
+                    ])
+                    ->where('organization_id', $orgId)
+                    ->where('status_id', $packingStatusId)
+                    ->orderByDesc('created_at')
+                    ->get();
+
         return response()->json([
             'success' => true,
             'orders'  => $orders,
-            'status'  => $statuses,  // add statuses array here
-        ], 200);
-    } catch (\Exception $e) {
+            'status'  => StatusDoc::all(),     // если нужно вернуть весь справочник
+        ]);
+
+    } catch (\Throwable $e) {
         return response()->json([
             'success' => false,
             'error'   => $e->getMessage(),
         ], 500);
     }
 }
+
+public function getPackerHistory()
+{
+    try {
+        /* текущая организация */
+        $orgId = auth()->user()->organization_id;
+
+        /* id статуса «на фасовке» */
+        $packingStatusId = StatusDoc::where('name', 'на фасовке')->value('id');
+
+        $orders = Order::with([
+                    'orderProducts.productSubCard.productCard',
+                    'packer:id,first_name,last_name,photo',
+                    'courier:id,first_name,last_name,photo',
+                    'client:id,first_name,last_name',
+                ])
+                ->where('organization_id', $orgId)   // ← только наши заказы
+                ->where('status_id', $packingStatusId) // ← статус «на фасовке»
+                ->get();
+
+        return response()->json([
+            'success' => true,
+            'orders'  => $orders,
+            'status'  => StatusDoc::all(),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'success' => false,
+            'error'   => $e->getMessage(),
+        ], 500);
+    }
+}
+
+
 
 public function getHistoryOrders()
 {
@@ -109,7 +160,7 @@ public function updateOrderProducts(Request $request, $orderId)
 {
     $validated = $request->validate([
         'products' => 'required|array',
-        'products.*.id' => 'required|integer|exists:products,id',
+        'products.*.id' => 'required|uuid|exists:products,id',
         'products.*.amount' => 'required|numeric|min:0',
     ]);
 
@@ -127,54 +178,7 @@ public function updateOrderProducts(Request $request, $orderId)
 }
 
 
-public function getInvoice()
-{
-    try {
-        $documents = PackerDocument::all();
 
-        return response()->json([
-            'success' => true,
-            'documents' => $documents,
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to fetch documents.',
-            'error' => $e->getMessage(),
-        ], 500);
-    }
-}
-
-/**
- * Создать накладную фасовщика
- */
-public function storeInvoice(Request $request)
-{
-    $validated = $request->validate([
-        'requests' => 'required|array',
-        'requests.*.id_courier' => 'required|integer',
-        'requests.*.delivery_address' => 'nullable|string|max:255',
-        'requests.*.product_subcard_id' => 'required|integer|exists:product_subcards,id',
-        'requests.*.amount_of_products' => 'required|numeric|min:0',
-    ]);
-
-    try {
-        foreach ($validated['requests'] as $requestData) {
-            PackerDocument::create($requestData);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Documents saved successfully.',
-        ], 201);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to save documents.',
-            'error' => $e->getMessage(),
-        ], 500);
-    }
-}
 
 public function confirmOrder($orderId)
     {

@@ -15,7 +15,11 @@ class CreateAddressesTable extends Migration
     {
         // адреса
         Schema::create('addresses', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name');
             $table->timestamps();
         });

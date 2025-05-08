@@ -14,11 +14,15 @@ class CreateRolesTable extends Migration
     public function up()
     {
         Schema::create('roles', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('organization_id')
+            ->nullable()
+            ->constrained('organizations')
+            ->cascadeOnDelete();
             $table->string('name')->unique(); // Role names like "cashbox", "courier"
             $table->timestamps();
         });
-        
+
     }
 
     /**

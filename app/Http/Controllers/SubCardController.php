@@ -6,9 +6,9 @@ use App\Models\AdminWarehouse;
 use App\Models\Document;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
-use App\Models\ReferenceItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class SubCardController extends Controller
 {
@@ -18,28 +18,59 @@ class SubCardController extends Controller
     public function store(Request $request)
     {
         try {
-            Log::info('ProductSubCard store endpoint hit.', ['request' => $request->all()]);
+            Log::info('ProductSubCard store', ['payload' => $request->all()]);
 
-            $validated = $request->validate([
-                'product_card_id' => 'required|exists:product_cards,id',
-                'name'           => 'required|string|max:255',
+            /* ------------------------------------------------------------
+             * 1) Организация текущего пользователя
+             * ---------------------------------------------------------- */
+            $orgId = $request->user()->organization_id;
+
+            /* ------------------------------------------------------------
+             * 2) Валидация
+             *    — название уникально в рамках одной организации
+             * ---------------------------------------------------------- */
+            $validated = $request->validate(
+                [
+                    'product_card_id' => ['required', 'exists:product_cards,id'],
+                    'name'            => [
+                        'required',
+                        'string',
+                        'max:255',
+                        Rule::unique('product_sub_cards')
+                            ->where('organization_id', $orgId),
+                    ],
+                ],
+                [
+                    'name.unique' => 'Подкарточка с таким именем уже существует',
+                ]
+            );
+
+            /* ------------------------------------------------------------
+             * 3) Создаём подкарточку
+             * ---------------------------------------------------------- */
+            $subCard = ProductSubCard::create([
+                'product_card_id' => $validated['product_card_id'],
+                'name'            => $validated['name'],
+                'organization_id' => $orgId,
             ]);
 
-            $subCard = ProductSubCard::create($validated);
-
             return response()->json([
-                'message' => 'Подкарточка успешно создано!',
+                'message' => 'Подкарточка успешно создана!',
                 'data'    => $subCard,
             ], 201);
-        } catch (\Exception $e) {
-            Log::error('Error creating product subcard.', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'Failed to create product subcard.'], 500);
+
+        } catch (\Throwable $e) {
+            Log::error('Error creating product subcard', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'error'   => 'Не удалось создать подкарточку',
+                'details' => $e->getMessage(),
+            ], 500);
         }
     }
 
     /**
      * Get all subcards, each with total quantity and batch details from AdminWarehouse
-     * old version
      */
     public function getSubCards()
     {
@@ -52,41 +83,6 @@ class SubCardController extends Controller
             return response()->json(['error' => 'Failed to fetch subcards with batch details.'], 500);
         }
     }
-
-
-    public function getProductSubcards(Request $request)
-{
-    try {
-        /* -----------------------------
-         | 1) базовый запрос + optional фильтр
-         * ---------------------------*/
-        $items = ReferenceItem::query()
-            ->when(
-                $request->filled('reference_id'),
-                fn ($q) => $q->where('reference_id', $request->reference_id)
-            )
-            ->with('reference:id,title')   // подтягиваем название карточки
-            ->get();
-
-        /* -----------------------------
-         | 2) подготовка payload
-         * ---------------------------*/
-        $payload = $items->map(fn ($it) => [
-            'id'              => $it->id,
-            'reference_id'    => $it->reference_id,
-            'reference_title' => $it->reference?->title,
-            'name'            => $it->name,
-            'value'           => $it->value,
-        ]);
-
-        return response()->json($payload, 200);
-
-    } catch (\Throwable $e) {
-        \Log::error('Error fetching card items', ['error' => $e->getMessage()]);
-        return response()->json(['error' => 'Failed to fetch card items.'], 500);
-    }
-}
-
 
     /**
      * Fetch all subcards for a specific product card
@@ -108,7 +104,7 @@ class SubCardController extends Controller
         $productSubCard = ProductSubCard::findOrFail($id);
 
         $validated = $request->validate([
-            'product_card_id' => 'nullable|integer|exists:product_cards,id',
+            'product_card_id' => 'nullable|uuid|exists:product_cards,id',
             'name'  => 'nullable|string',
             'brutto'=> 'nullable|numeric',
             'netto' => 'nullable|numeric',

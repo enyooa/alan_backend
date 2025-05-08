@@ -14,18 +14,19 @@ class CreateOrderItemsTable extends Migration
     public function up()
     {
         Schema::create('order_items', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id'); // Reference to the order
-            $table->unsignedBigInteger('product_subcard_id'); // Reference to the product
+            $table->uuid('id')->primary();
+            $table->foreignUuid('order_id')
+            ->constrained('orders')
+            ->cascadeOnDelete();
+            $table->foreignUuid('product_subcard_id')
+            ->constrained('product_sub_cards')
+            ->cascadeOnDelete();
             $table->string('source_table'); // Source: 'sales' or 'price_requests'
             $table->integer('quantity')->default(1); // Quantity ordered
             $table->integer('price')->nullable(); // Price per unit
             $table->timestamps();
 
-            // Foreign key constraints
-            $table->foreign('order_id')->references('id')->on('orders')->onDelete('cascade');
-            $table->foreign('product_subcard_id')->references('id')->on('product_sub_cards')->onDelete('cascade');
-        });
+         });
     }
 
     /**

@@ -2,15 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Organization;
 use App\Models\PhoneVerification;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Models\Role;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Twilio\Rest\Client; // <--
+use Illuminate\Support\Str;
+
 
 use Illuminate\Validation\ValidationException;
 
@@ -20,35 +25,59 @@ class AuthController extends Controller
      * Handle user login and return user details with token.
      */
     public function login(Request $request)
-    {
-        Log::info('Login attempt:', $request->all());
+{
+    Log::info('Login attempt', $request->all());
 
-        $request->validate([
-            'whatsapp_number' => 'required',
-            'password' => 'required',
-        ]);
+    /* ─── 1. Validate input ─── */
+    $request->validate([
+        'whatsapp_number' => 'required',
+        'password'        => 'required',
+    ]);
 
-        if (Auth::attempt(['whatsapp_number' => $request->whatsapp_number, 'password' => $request->password])) {
-            $user = Auth::user();
-            $token = $user->createToken('auth_token')->plainTextToken;
+    /* ─── 2. Normalize phone like in register() ─── */
+    $phone = $this->formatPhoneNumber($request->whatsapp_number);
 
-            // Fetch the roles of the user
-            $roles = $user->roles()->pluck('name')->toArray();
-
-            return response()->json([
-                'id' => $user->id, // Include user ID
-                'token' => $token,
-                'roles' => $roles,
-                'first_name' => $user->first_name,
-                'last_name' => $user->last_name,
-                'surname' => $user->surname,
-                'whatsapp_number' => $user->whatsapp_number,
-                'photo' => $user->photo ? asset('storage/' . $user->photo) : null,
-            ], 200);
-        }
-
-        return response()->json(['message' => 'Не правильный логин или пароль, либо этот пользователь не зарегистрирован!'], 401);
+    /* ─── 3. Attempt auth ─── */
+    if (! Auth::attempt(['whatsapp_number' => $phone, 'password' => $request->password])) {
+        return response()->json(['message' => 'Неправильный логин или пароль'], 401);
     }
+
+    /* ─── 4. Load user with relations ─── */
+    $user = Auth::user()->load(['roles:id,name', 'organization:id,name']);
+    $isVerified = ! is_null($user->phone_verified_at);
+
+    /* ─── 5. If NOT verified — deny token, return 423 ─── */
+    if (! $isVerified) {
+        return response()->json([
+            'id'              => $user->id,
+            'is_verified'     => false,
+            'roles'           => $user->roles->pluck('name'),
+            'organization'    => $user->organization,
+            'first_name'      => $user->first_name,
+            'last_name'       => $user->last_name,
+            'surname'         => $user->surname,
+            'whatsapp_number' => $user->whatsapp_number,
+            'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
+            'message'         => 'Телефон не подтверждён. Введите код из WhatsApp/SMS.'
+        ], 423);   // 423 Locked
+    }
+
+    /* ─── 6. Verified: issue token, return 200 ─── */
+    $token = $user->createToken('auth_token')->plainTextToken;
+
+    return response()->json([
+        'id'              => $user->id,
+        'token'           => $token,            // ← видно только когда verified
+        'is_verified'     => true,
+        'roles'           => $user->roles->pluck('name'),
+        'organization'    => $user->organization,
+        'first_name'      => $user->first_name,
+        'last_name'       => $user->last_name,
+        'surname'         => $user->surname,
+        'whatsapp_number' => $user->whatsapp_number,
+        'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
+    ]);
+}
 
     /**
      * Register a new user and send a Twilio verification code.
@@ -59,13 +88,21 @@ class AuthController extends Controller
 
         try {
             // Validate input
-            $fields = $request->validate([
-                "first_name"      => 'required|string|max:255',
-                "last_name"       => 'nullable|string|max:255',
-                "surname"         => 'nullable|string|max:255',
-                "whatsapp_number" => 'required|string|unique:users|max:15',
-                "password"        => 'required|string|confirmed|min:8',
-            ]);
+            $fields = $request->validate(
+                [
+                    'first_name'      => 'required|string|max:255',
+                    'last_name'       => 'nullable|string|max:255',
+                    'surname'         => 'nullable|string|max:255',
+                    'whatsapp_number' => 'required|string|unique:users|max:15',
+                    'password'        => 'required|string|confirmed|min:8',
+                ],
+                [
+                    'whatsapp_number.unique' => 'whatsapp номер уже зарегистрирован',   // 👈 ваше сообщение
+                    'password.confirmed'    => 'пароли не совпадают',
+                    // … добавляйте остальные при желании
+                ]
+            );
+
 
             // Format the phone number (always convert to e.g. "7076069831")
             $formattedNumber = $this->formatPhoneNumber($fields['whatsapp_number']);
@@ -115,7 +152,7 @@ class AuthController extends Controller
             }
 
             // Trigger sending a verification code now
-            $this->sendVerificationCode($formattedNumber);
+            $this->deliverVerificationCode($formattedNumber);
 
             return response()->json([
                 'id'           => $user->id,
@@ -141,109 +178,164 @@ class AuthController extends Controller
         }
     }
 
+
+    public function registerOrganization(Request $request): JsonResponse
+{
+    /* ① валидация */
+    $data = $request->validate([
+        'org_name'      => 'required|string|max:255',
+        'address'       => 'nullable|string|max:255',
+        'plan_slug'     => 'nullable|string|exists:plans,slug', // если null → starter
+        'manager'       => 'required|array',
+        'manager.phone' => 'required|string',
+        'manager.first_name' => 'required|string|max:255',
+        'manager.last_name'  => 'nullable|string|max:255',
+        'manager.password'   => 'required|string|min:8',
+    ]);
+
+    /* ② атомарная транзакция */
+    DB::transaction(function () use ($data) {
+
+        /* ── 2.1 Организация ── */
+        $org = Organization::create([
+            'id'      => (string) Str::uuid(),
+            'name'    => $data['org_name'],
+            'address' => $data['address'] ?? '',
+        ]);
+
+        /* ── 2.2 План ── */
+        $plan = Plan::where('slug', $data['plan_slug'] ?? 'starter')->first();
+
+        // привязываем к организации
+        $org->plans()->attach($plan->id, [
+            'starts_at' => now(),
+            'ends_at'   => now()->addDays($plan->period_days),
+        ]);
+
+        // даём разрешения плана
+        $org->permissions()->sync($plan->permissions->pluck('id'));
+
+        /* ── 2.3 Админ ── */
+        $phone10 = $this->formatPhoneNumber($data['manager']['phone']);
+
+        $admin = User::create([
+            'first_name'      => $data['manager']['first_name'],
+            'last_name'       => $data['manager']['last_name'] ?? '',
+            'whatsapp_number' => $phone10,
+            'password'        => Hash::make($data['manager']['password']),
+            'organization_id' => $org->id,
+        ]);
+        $admin->assignRole('admin');
+
+        /* ── 2.4 Отправляем код ── */
+        $this->deliverVerificationCode($phone10);
+    });
+
+    return response()->json(['message' => 'Организация зарегистрирована, код выслан менеджеру.'], 201);
+}
+
     /**
      * Generate a random 4-digit code, store it in PhoneVerification table,
      * and send it via GreenAPI.
      */
-    public function sendVerificationCode(String $request)
+    public function sendVerificationCode(Request $request)
 {
-    // Extract and format the phone number from the request.
-    $phoneNumber = $this->formatPhoneNumber($request);
+    $request->validate(['phone_number' => 'required|string']);
+    $phone = $this->formatPhoneNumber($request->phone_number);
 
-    // Generate a 4-digit random code.
+    $this->deliverVerificationCode($phone);   // 👈 приватный метод
+    return response()->json(['message' => 'Код отправлен']);
+}
+
+/*  внутренняя отправка: используем и из register()  */
+private function deliverVerificationCode(string $phone10)
+{
     $code = rand(1000, 9999);
 
-    // Store or update the verification record.
     PhoneVerification::updateOrCreate(
-        ['phone_number' => $phoneNumber],
+        ['phone_number' => $phone10],   // 10-значный
         ['code' => $code]
     );
 
-    // Prepare GreenAPI call.
-    $chatId = $phoneNumber . '@c.us';
-    $url = 'https://7105.api.greenapi.com/waInstance7105215666/sendMessage/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba';
+    /* GreenAPI принимает 11 цифр */
+    $chatId = '7'.$phone10.'@c.us';
 
-    $payload = [
-        'chatId'  => $chatId,
-        'message' => "Ваш код: $code",
-    ];
-
-    // Send via HTTP.
-    Http::withHeaders([
-        'Content-Type' => 'application/json',
-    ])->post($url, $payload);
+    Http::post(
+        'https://7105.api.greenapi.com/waInstance7105237391/sendMessage/70f842bef4ac4b49a48061f033e03752846596508a9847638a',
+        ['chatId' => $chatId, 'message' => "Ваш код: $code"]
+    );
 }
+
 
     /**
      * Verify the code entered by the user.
      */
     public function verifyCode(Request $request)
-    {
-        $validated = $request->validate([
-            'phone_number' => 'required|string',
-            'code'         => 'required|string',
-        ]);
+{
+    $request->validate([
+        'phone_number' => 'required|string',
+        'code'         => 'required|string',
+    ]);
 
-        // Format the phone number consistently.
-        $phone = $this->formatPhoneNumber($validated['phone_number']);
+    $phone10 = $this->formatPhoneNumber($request->phone_number);
 
-        // Check if the code exists for this phone number.
-        $verification = PhoneVerification::where('phone_number', $phone)
-            ->where('code', $validated['code'])
-            ->first();
+    /* ① ищем запись */
+    $verification = PhoneVerification::where('phone_number', $phone10)
+                                     ->where('code', $request->code)
+                                     ->first();
 
-        if (!$verification) {
-            return response()->json(['message' => 'Неверный код'], 400);
-        }
-
-        // Remove the verification record.
-        $verification->delete();
-
-        // Mark the user as verified by setting phone_verified_at.
-        $user = User::where('whatsapp_number', $phone)->first();
-        if ($user) {
-            $user->phone_verified_at = now();
-            $user->save();
-        }
-
-        return response()->json(['message' => 'Успешно подтверждено!']);
+    /* ② не нашли — сразу ошибка */
+    if (! $verification) {
+        return response()->json([
+            'message' => 'Неверный код проверки'
+        ], 422);                                          // 422 Unprocessable Entity
     }
+
+    /* ③ опционально проверяем срок действия (5 мин) */
+    // if ($verification->created_at->lt(now()->subMinutes(5))) {
+    //     $verification->delete();                          // удалить просроченный
+    //     return response()->json([
+    //         'message' => 'Срок действия кода истёк'
+    //     ], 422);
+    // }
+
+    /* ④ есть корректная запись — подтверждаем */
+    $verification->delete();
+
+    User::where('whatsapp_number', $phone10)
+        ->update(['phone_verified_at' => now()]);
+
+    return response()->json(['message' => 'Код подтверждён']);
+}
 
     /**
      * Check if the given phone number is registered with WhatsApp using GreenAPI.
      */
-    private function checkWhatsappGreenApi($phoneNumber)
-    {
-        try {
-            // Karla
-            $url = "https://7105.api.greenapi.com/waInstance7105215666/checkWhatsapp/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba";
+    private function checkWhatsappGreenApi($phone10)
+{
+    try {
+        $url = 'https://7105.api.greenapi.com/waInstance7105237391/checkWhatsapp/70f842bef4ac4b49a48061f033e03752846596508a9847638a';
 
-            // my number instance
-            // $url = "https://7103.api.greenapi.com/waInstance7103137262/checkWhatsapp/671d758833a747d9b00777a1c82e4436cb5d18508aac45b29f";
-            // my number instance
+        $client   = new \GuzzleHttp\Client();
+        $response = $client->post($url, [
+            'json' => [ 'phoneNumber' => '7'.$phone10 ],  // 👈 GreenAPI ждёт 11 цифр
+        ]);
 
-            $client = new \GuzzleHttp\Client();
-
-            $response = $client->post($url, [
-                'json' => [
-                    'phoneNumber' => $phoneNumber,
-                ],
-            ]);
-
-            $data = json_decode($response->getBody(), true);
-            return isset($data['existsWhatsapp']) && $data['existsWhatsapp'] === true;
-        } catch (\Exception $e) {
-            Log::error("Green-API checkWhatsApp failed: " . $e->getMessage());
-            return false;
-        }
+        $data = json_decode($response->getBody(), true);
+        return $data['existsWhatsapp'] ?? false;
+    } catch (\Exception $e) {
+        Log::error('Green-API check failed: '.$e->getMessage());
+        return false;
     }
+}
+
 
     /**
      * (Optional) Send a WhatsApp message using GreenAPI.
      */
     private function sendWhatsAppGreenApi($phoneNumber, $message)
     {
-        $url = "https://7105.api.greenapi.com/waInstance7105215666/sendMessage/96df68496897444f89ec3dc7b044d4f45b1a0365634f4ab2ba";
+        $url = 'https://7105.api.greenapi.com/waInstance7105237391/sendMessage/70f842bef4ac4b49a48061f033e03752846596508a9847638a';
         $chatId = ltrim($phoneNumber, '+') . '@c.us';
 
         $client = new \GuzzleHttp\Client();
@@ -263,16 +355,26 @@ class AuthController extends Controller
      * - "+7707609831" => "7076069831"
      * - "7076069831" remains unchanged.
      */
-    private function formatPhoneNumber($phone)
-    {
-        $phone = trim($phone);
-        if (strpos($phone, '+7') === 0) {
-            return '7' . substr($phone, 2);
-        } elseif (strpos($phone, '8') === 0) {
-            return '7' . substr($phone, 1);
-        }
-        return $phone;
-    }
+    /**
+ * Приводит казахстанский номер к формату 10-ти цифр: 7076069831
+ * Допускает входные варианты: +7707…, 8707…, 7707…, 7077…
+ */
+/**
+ * Приводит номер к формату GreenAPI: 11-цифр, начинается с 7.
+ * Принимает варианты: "+7705…", "8705…", "7705…", "705…" (с пробелами/скобками).
+ */
+private function formatPhoneNumber(string $phone): string
+{
+    $d = preg_replace('/\D/', '', $phone);   // только цифры
+
+    // +770… / 770… / 870… / 70… → 707…
+    if (strlen($d) === 12 && substr($d, 0, 2) === '77') return substr($d, 2);
+    if (strlen($d) === 11 && $d[0] === '7')             return substr($d, 1);
+    if (strlen($d) === 11 && $d[0] === '8')             return substr($d, 1);
+    // если уже 10 цифр, оставляем
+    return $d;
+}
+
 
     /**
      * Log out the authenticated user and revoke tokens.

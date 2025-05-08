@@ -242,25 +242,26 @@
 
   /* ────────── fetchers ────────── */
   async function fetchProviders () {
-    const { data } = await axios.get('/api/reference/provider')
-    providers.value = flatten(data).map(i => ({ id: i.id, name: i.name }))
-  }
+  const { data } = await axios.get('/api/reference/provider')
+  providers.value = data                       // ←  сразу массив
+}
   async function fetchProducts () {
-    const { data } = await axios.get('/api/reference/product-subcard')
-    products.value = flatten(data).map(i => ({ id: i.id, name: i.name }))
+    const { data } = await axios.get('/api/reference/subproductCard')
+    // products.value = flatten(data).map(i => ({ id: i.id, name: i.name }))
+    products.value = data
   }
   async function fetchUnits () {
-    const { data } = await axios.get('/api/reference/unit')
-    units.value = flatten(data).map(i => ({
-      id: i.id, name: i.name, tare: Number(i.value) || 0
-    }))
-  }
-  async function fetchAllExpenses () {
-    const { data } = await axios.get('/api/reference/expense')
-    allExpenses.value = flatten(data).map(i => ({
-      id: i.id, name: i.name, amount: Number(i.value) || 0
-    }))
-  }
+  const { data } = await axios.get('/api/reference/unit')
+  units.value = data.map(u => ({
+    id: u.id,
+    name: u.name,
+    tare: Number(u.value) || 0
+  }))
+}
+async function fetchAllExpenses () {
+  const { data } = await axios.get('/api/reference/expense')
+  allExpenses.value = data                     // ←  сразу массив
+}
   async function fetchWarehouses () {
     const { data } = await axios.get('/api/getWarehouses')
     warehouses.value = data

@@ -11,9 +11,22 @@ class UnitMeasurementController extends Controller
     /**
      * Retrieve all unit measurements (HEAD version).
      */
-    public function index()
+    public function index(Request $request)
     {
-        $units = Unit_measurement::select('id', 'name', 'tare')->get(); // ✅ Ensure ID is included
+        $orgId = $request->user()->organization_id;   // «моя» организация
+
+        /*  ─── выборка ───
+            WHERE (organization_id = $orgId)  OR (organization_id IS NULL)
+            + выбираем нужные поля
+        */
+        $units = Unit_measurement::select('id', 'name', 'tare')
+                    ->where(function ($q) use ($orgId) {
+                        $q->where('organization_id', $orgId)
+                          ->orWhereNull('organization_id');
+                    })
+                    ->orderBy('name')
+                    ->get();
+
         return response()->json($units);
     }
 
@@ -43,7 +56,9 @@ class UnitMeasurementController extends Controller
             'tare' => $request->input('tare') !== null
                 ? (float) $request->input('tare')
                 : null, // Cast tare to double
-        ]);
+                $request->user()->organization_id
+
+            ]);
 
         return response()->json([
             'message' => 'Единица измерения успешно добавлена!',

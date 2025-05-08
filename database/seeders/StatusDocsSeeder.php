@@ -2,18 +2,18 @@
 
 namespace Database\Seeders;
 
+use App\Models\StatusDoc;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
 class StatusDocsSeeder extends Seeder
 {
     public function run()
     {
-        DB::table('status_docs')->insert([
-            ['name' => 'ожидание'],     // or 'pending'
-            ['name' => 'на фасовке'],   // or 'packing'
-            ['name' => 'доставка'],     // or 'delivering'
-            ['name' => 'исполнено'],    // or 'done'
-        ]);
+        collect([
+            'ожидание',      // pending
+            'на фасовке',    // packing
+            'Передано курьеру',      // delivering
+            'исполнено',     // done
+        ])->each(fn ($name) => StatusDoc::create(['name' => $name]));
     }
 }

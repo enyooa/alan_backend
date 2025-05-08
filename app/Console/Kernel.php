@@ -17,7 +17,7 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
         $schedule->command('priceoffers:remove-expired')->daily();
-
+        $schedule->command('plans:expire')->dailyAt('01:00');
     }
 
     /**

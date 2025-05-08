@@ -1,8 +1,8 @@
 <template>
     <div class="dashboard-container">
-      <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" />
+      <!-- <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" /> -->
       <div class="main-content">
-        <Header />
+        <!-- <Header /> -->
         <main class="content">
           <h2 class="page-title">История операций</h2>
 
@@ -62,24 +62,30 @@
               <tbody>
                 <tr
                   v-for="(op, index) in filteredOperationsList"
-                  :key="`${op.opType}-${op.id}`"
+                  :key="`${op.type}-${op.id}`"
                 >
-                  <td>{{ getFriendlyType(op.opType) }}</td>
+                  <td>{{ getFriendlyType(op.type) }}</td>
                   <td>{{ formatDate(op.created_at) }}</td>
                   <td>
-                    <span v-if="op.opType === 'productCard'">
-                      {{ op.description || '—' }}
+                    <!-- Different fields by type -->
+                    <span v-if="op.type === 'productCard'">
+                      {{ op.description || "—" }}
                     </span>
-                    <span
-                      v-else-if="['subproductCard','provider','address'].includes(op.opType)"
-                    >
-                      {{ op.name || '—' }}
+                    <span v-else-if="op.type === 'subproductCard'">
+                      {{ op.name || "—" }}
                     </span>
-                    <span v-else-if="op.opType === 'unit'">
-                      {{ op.value ? op.value + ' г/кг/л' : '—' }}
+                    <span v-else-if="op.type === 'provider'">
+                      {{ op.name || "—" }}
                     </span>
-                    <span v-else-if="op.opType === 'expense'">
-                      {{ op.name }}<span v-if="op.value"> ({{ op.value }})</span>
+                    <span v-else-if="op.type === 'unit'">
+                      {{ op.tare ? op.tare + " г/кг/л" : "—" }}
+                    </span>
+                    <span v-else-if="op.type === 'address'">
+                      {{ op.name || "—" }}
+                    </span>
+                    <!-- If "expense", maybe show op.name or op.amount, up to you -->
+                    <span v-else-if="op.type === 'expense'">
+                      {{ op.name }} ({{ op.amount }})
                     </span>
                   </td>
                   <td>
@@ -104,6 +110,7 @@
               />
             </div>
           </div>
+
           <div v-if="showModal.subproductCard" class="modal-overlay">
             <div class="modal-container">
               <ProductSubCardEdit
@@ -113,6 +120,7 @@
               />
             </div>
           </div>
+
           <div v-if="showModal.provider" class="modal-overlay">
             <div class="modal-container">
               <ProviderEdit
@@ -122,6 +130,7 @@
               />
             </div>
           </div>
+
           <div v-if="showModal.unit" class="modal-overlay">
             <div class="modal-container">
               <UnitEdit
@@ -131,6 +140,7 @@
               />
             </div>
           </div>
+
           <div v-if="showModal.address" class="modal-overlay">
             <div class="modal-container">
               <AddressEdit
@@ -140,6 +150,8 @@
               />
             </div>
           </div>
+
+          <!-- NEW: ExpenseEdit Modal -->
           <div v-if="showModal.expense" class="modal-overlay">
             <div class="modal-container">
               <ExpenseEdit
@@ -159,6 +171,7 @@
               />
             </div>
           </div>
+
           <div v-if="createModal.subproductCard" class="modal-overlay">
             <div class="modal-container">
               <ProductSubCardPage
@@ -167,6 +180,7 @@
               />
             </div>
           </div>
+
           <div v-if="createModal.provider" class="modal-overlay">
             <div class="modal-container">
               <ProviderPage
@@ -175,6 +189,7 @@
               />
             </div>
           </div>
+
           <div v-if="createModal.unit" class="modal-overlay">
             <div class="modal-container">
               <UnitFormPage
@@ -183,6 +198,7 @@
               />
             </div>
           </div>
+
           <div v-if="createModal.address" class="modal-overlay">
             <div class="modal-container">
               <AddressPage
@@ -191,6 +207,8 @@
               />
             </div>
           </div>
+
+          <!-- NEW: ExpenseFormPage Modal -->
           <div v-if="createModal.expense" class="modal-overlay">
             <div class="modal-container">
               <ExpenseFormPage
@@ -223,6 +241,7 @@
   import UnitFormPage from "./forms/references/UnitFormPage.vue";
   import AddressPage from "./forms/references/AddressPage.vue";
   import ExpenseFormPage from "./forms/references/ExpensePage.vue";
+  import CashEdit from "./forms/references/CashEdit.vue";
 
   import axios from "axios";
 
@@ -231,12 +250,15 @@
     components: {
       Sidebar,
       Header,
+      // Edit
       ProductCardEdit,
       ProductSubCardEdit,
       ProviderEdit,
       UnitEdit,
       AddressEdit,
       ExpenseEdit,
+      CashEdit,
+      // Create
       ProductCardPage,
       ProductSubCardPage,
       ProviderPage,
@@ -258,7 +280,7 @@
           provider: false,
           unit: false,
           address: false,
-          expense: false,
+          expense: false, // NEW
         },
         createModal: {
           productCard: false,
@@ -266,35 +288,9 @@
           provider: false,
           unit: false,
           address: false,
-          expense: false,
+          expense: false, // NEW
         },
         selectedCreateType: "",
-        titleToType: {
-          'Карточка товара': 'productCard',
-          'Подкарточка товара': 'subproductCard',
-          'Поставщик': 'provider',
-          'Единица измерения': 'unit',
-          'Адрес': 'address',
-          'Расход': 'expense',
-          'Приход': 'income',
-        },
-        typeToSlug: {
-          productCard: 'product-card',
-          subproductCard: 'product-subcard',
-          provider: 'provider',
-          unit: 'unit',
-          address: 'address',
-          expense: 'expense',
-          income: 'income',
-        },
-        friendly: {
-          productCard: 'Карточка товара',
-          subproductCard: 'Подкарточка',
-          provider: 'Поставщик',
-          unit: 'Единица измерения',
-          address: 'Адрес',
-          expense: 'Расход',
-        },
       };
     },
     created() {
@@ -305,102 +301,211 @@
         this.isSidebarOpen = !this.isSidebarOpen;
       },
 
-      flattenRefs(arr, type) {
-    return (arr || [])
-      .flatMap(r => r.RefferenceItem || [])
-      .map(item => ({
-        ...item,
-        opType: type,
-        created_at: item.created_at
-      }));   // <-- закрыли объект и .map(), а затем функцию flattenRefs
-  },
-
+      // 1) Fetch references: productCard, subproductCard, provider, unit, address, expense
       async fetchOperationHistory() {
         try {
-          const token = localStorage.getItem('token');
+          const token = localStorage.getItem("token");
           if (!token) {
-            this.$router.push('/login');
+            alert("Отсутствует токен. Пожалуйста, войдите в систему.");
+            this.$router.push("/login");
             return;
           }
-          const { data } = await axios.get('/api/reference', { headers: { Authorization: `Bearer ${token}` } });
-          const ops = data.refferences.flatMap((ref) => {
-            const type = this.titleToType[ref.title] || 'unknown';
-            return (ref.RefferenceItem || []).map((item) => ({
-              ...item,
-              opType: type,
-              created_at: ref.created_at,
-            }));
-          });
-          this.allOperations = ops;
+
+          const types = [
+            "productCard",
+            "subproductCard",
+            "provider",
+            "unit",
+            "address",
+            "expense",
+            "cash"
+          ];
+          const requests = types.map((type) =>
+            axios
+              .get(`/api/references/${type}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+              .then((response) =>
+                response.data.map((item) => ({ ...item, type }))
+              )
+          );
+          const results = await Promise.all(requests);
+          this.allOperations = results.flat();
           this.filterOperations();
-        } catch (e) {
-          console.error('Ошибка загрузки операций:', e);
+        } catch (error) {
+          console.error("Ошибка загрузки данных:", error);
         }
       },
 
       filterOperations() {
+        let res = [...this.allOperations];
         const q = this.searchQuery.toLowerCase();
-        let res = this.allOperations.filter((op) => {
-          let field = '';
-          if (op.opType === 'unit') field = op.value ? String(op.value) : '';
-          else field = op.name || op.description || '';
-          return field.toLowerCase().includes(q);
-        });
-        if (this.filterType) {
-          res = res.filter((op) => op.opType === this.filterType);
+
+        // search by type
+        if (q) {
+          res = res.filter((op) => {
+            let searchField = "";
+            if (op.type === "productCard") {
+              searchField = op.name_of_products || "";
+            } else if (
+              op.type === "subproductCard" ||
+              op.type === "provider" ||
+              op.type === "address"
+            ) {
+              searchField = op.name || "";
+            } else if (op.type === "unit") {
+              searchField = op.tare ? op.tare.toString() : "";
+            } else if (op.type === "expense") {
+              searchField = op.name || "";
+            }else if (op.type === "cash") {
+              searchField = op.name || "";
+            }
+            return searchField.toLowerCase().includes(q);
+          });
         }
+
+        // filter by type
+        if (this.filterType) {
+          res = res.filter((op) => op.type === this.filterType);
+        }
+
         this.filteredOperationsList = res;
       },
 
       formatDate(d) {
-        return d ? new Date(d).toLocaleDateString() : '';
+        return d ? new Date(d).toLocaleDateString() : "";
       },
 
       getFriendlyType(type) {
-        return this.friendly[type] || 'Неизвестно';
-      },
-
-      editOperation(op) {
-        this.operationToEdit = { ...op };
-        Object.keys(this.showModal).forEach((key) => (this.showModal[key] = false));
-        this.showModal[op.opType] = true;
-      },
-
-      async deleteOperation(op, idx) {
-        if (!confirm(`Удалить операцию ${op.id}?`)) return;
-        try {
-          const token = localStorage.getItem('token');
-          const slug = this.typeToSlug[op.opType];
-          await axios.delete(`/api/reference/${slug}/${op.id}`, { headers: { Authorization: `Bearer ${token}` } });
-          this.filteredOperationsList.splice(idx, 1);
-          this.allOperations = this.allOperations.filter((o) => o.id !== op.id);
-        } catch {
-          alert('Не удалось удалить');
+        switch (type) {
+          case "productCard":
+            return "Карточка товара";
+          case "subproductCard":
+            return "Подкарточка";
+          case "provider":
+            return "Поставщик";
+          case "unit":
+            return "Единица измерения";
+          case "address":
+            return "Адрес";
+          case "expense":
+            return "Расход";
+            case "cash":
+            return "Счет"
+          default:
+            return "Неизвестно";
         }
       },
 
+      // 2) Edit existing record
+      editOperation(op) {
+        this.operationToEdit = { ...op };
+        this.closeAllModalsWithoutReset();
+
+        if (op.type === "productCard") {
+          this.showModal.productCard = true;
+        } else if (op.type === "subproductCard") {
+          this.showModal.subproductCard = true;
+        } else if (op.type === "provider") {
+          this.showModal.provider = true;
+        } else if (op.type === "unit") {
+          this.showModal.unit = true;
+        } else if (op.type === "address") {
+          this.showModal.address = true;
+        } else if (op.type === "expense") {
+          this.showModal.expense = true; // open the expense edit modal
+        }
+      },
+
+      // 3) Delete record
+      async deleteOperation(op, idx) {
+        if (!confirm(`Удалить операцию ${op.id}?`)) return;
+
+        try {
+          const token = localStorage.getItem("token");
+          const endpoint = `/api/references/${op.type}/${op.id}`;
+          await axios.delete(endpoint, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          // Remove from local arrays
+          this.filteredOperationsList.splice(idx, 1);
+          const realIndex = this.allOperations.findIndex((o) => o.id === op.id);
+          if (realIndex >= 0) this.allOperations.splice(realIndex, 1);
+        } catch (err) {
+          console.error("Ошибка при удалении:", err);
+          alert("Не удалось удалить операцию.");
+        }
+      },
+
+      closeAllModalsWithoutReset() {
+        Object.keys(this.showModal).forEach((key) => {
+          this.showModal[key] = false;
+        });
+      },
+
       closeAllModals() {
-        Object.keys(this.showModal).forEach((key) => (this.showModal[key] = false));
+        this.closeAllModalsWithoutReset();
         this.operationToEdit = null;
       },
 
-      onOperationSaved() {
+      // When an operation is saved (from the edit modals)
+      onOperationSaved(updatedRecord) {
+        if (this.operationToEdit) {
+          // Merge old + new data
+          const mergedRecord = {
+            ...this.operationToEdit,
+            ...updatedRecord,
+          };
+
+          // Replace in local arrays
+          this.allOperations = this.allOperations.map((op) =>
+            op.id === this.operationToEdit.id && op.type === this.operationToEdit.type
+              ? mergedRecord
+              : op
+          );
+        }
+        this.filterOperations();
         this.closeAllModals();
         this.fetchOperationHistory();
       },
 
-      onNewRecordSaved() {
-        this.closeCreateModal();
+      // For newly created records
+      onNewRecordSaved(newRecord) {
         this.fetchOperationHistory();
+        this.closeCreateModal();
       },
 
+      // ========== CREATE LOGIC ==========
+
       onCreateTypeChange() {
-        Object.keys(this.createModal).forEach((key) => (this.createModal[key] = false));
-        if (this.selectedCreateType) this.createModal[this.selectedCreateType] = true;
-        this.selectedCreateType = '';
+        // open create modals
+        this.resetCreateModals();
+        if (this.selectedCreateType === "productCard") {
+          this.createModal.productCard = true;
+        } else if (this.selectedCreateType === "subproductCard") {
+          this.createModal.subproductCard = true;
+        } else if (this.selectedCreateType === "provider") {
+          this.createModal.provider = true;
+        } else if (this.selectedCreateType === "unit") {
+          this.createModal.unit = true;
+        } else if (this.selectedCreateType === "address") {
+          this.createModal.address = true;
+        } else if (this.selectedCreateType === "expense") {
+          this.createModal.expense = true;
+        }
+
+        this.selectedCreateType = "";
       },
+
+      resetCreateModals() {
+        Object.keys(this.createModal).forEach((key) => {
+          this.createModal[key] = false;
+        });
+      },
+
       closeCreateModal() {
-        Object.keys(this.createModal).forEach((key) => (this.createModal[key] = false));
+        this.resetCreateModals();
       },
     },
     watch: {
@@ -415,20 +520,125 @@
   </script>
 
   <style scoped>
-  .dashboard-container { display: flex; min-height: 100vh; }
-  .main-content { flex: 1; background-color: #f5f5f5; }
-  .content { padding: 20px; }
-  .page-title { text-align: center; color: #0288d1; margin-bottom: 20px; }
-  .form-controls-row { display: flex; gap: 10px; margin-bottom: 20px; }
-  .form-control { height: 40px; padding: 10px; font-size: 14px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-  .create-select, .filter-select { width: 200px; }
-  .search-box { flex: 1; }
-  .table-container { overflow-x: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 3px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
-  .history-table { width: 100%; border-collapse: collapse; }
-  .history-table th, .history-table td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-  .history-table thead { background-color: #0288d1; color: white; }
-  .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 999; }
-  .modal-container { background: #fff; padding: 20px; border-radius: 12px; width: 90%; max-width: 700px; }
-  .edit-btn, .delete-btn { border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
-  .delete-btn { background-color: #f44336; color: #fff; }
+  /* Layout */
+  .dashboard-container {
+    display: flex;
+    min-height: 100vh;
+  }
+  .main-content {
+    flex: 1;
+    background-color: #f5f5f5;
+  }
+  .content {
+    padding: 20px;
+  }
+  .page-title {
+    text-align: center;
+    color: #0288d1;
+    margin-bottom: 20px;
+  }
+
+  /* FORM CONTROLS ROW */
+  .form-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  /* Common form control style */
+  .form-control {
+    height: 40px;
+    padding: 10px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    box-sizing: border-box;
+  }
+
+  /* Specific widths */
+  .create-select,
+  .filter-select {
+    width: 200px; /* Fixed width for dropdowns */
+  }
+  .search-box {
+    flex: 1; /* Search box fills remaining space */
+  }
+
+  /* TABLE STYLES */
+  .table-container {
+    overflow-x: auto;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+  }
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .history-table th,
+  .history-table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: center;
+  }
+  .history-table thead {
+    background-color: #0288d1;
+    color: white;
+  }
+
+  /* MODAL STYLES */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+  }
+  .modal-container {
+    background: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 700px;
+  }
+
+  /* BUTTONS */
+  .edit-btn,
+  .delete-btn,
+  .submit-btn,
+  .close-btn {
+    height: 40px;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  .edit-btn {
+    background-color: inherit;
+  }
+  .delete-btn {
+    background-color: #f44336;
+    color: #fff;
+  }
+  .submit-btn {
+    background-color: #0288d1;
+    color: #fff;
+  }
+  .submit-btn:hover {
+    background-color: #026ca0;
+  }
+  .close-btn {
+    background-color: #f44336;
+    color: #fff;
+    flex: 1;
+  }
   </style>

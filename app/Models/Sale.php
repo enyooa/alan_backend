@@ -3,25 +3,31 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;  // ← import Str
 
 class Sale extends Model
 {
+    public $incrementing = false;
+    protected $keyType   = 'string';
     protected $fillable = [
-        'product_subcard_id',   // теперь указывает на reference_items.id
-        'unit_measurement',
-        'amount',
-        'price',
+        'client_id','warehouse_id','sale_date','total_sum','organization_id'
     ];
-
-    /*––  новое canonical-имя  ––*/
-    public function product()        // под-карточка-товара
+    protected static function boot()
     {
-        return $this->belongsTo(ReferenceItem::class, 'product_subcard_id');
-    }
+        parent::boot();                       // ← не забываем!
 
-    /*––  старое имя, чтобы не падал legacy-код  ––*/
-    public function subCard()
-    {
-        return $this->product();
+        static::creating(function ($model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
+            }
+        });
     }
+    public function items()      { return $this->hasMany(SaleItem::class); }
+    public function client()     { return $this->belongsTo(User::class);   }
+    public function warehouse()  { return $this->belongsTo(Warehouse::class); }
+    public function organization()
+{
+    return $this->belongsTo(Organization::class);
+}
+
 }

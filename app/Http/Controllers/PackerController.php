@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\JsonResponse;
 
 class PackerController extends Controller
 {
@@ -51,62 +52,55 @@ class PackerController extends Controller
     // накладная
     public function create_packer_document(Request $request)
 {
-    Log::info($request->all());
-
-    // 1) Validate the incoming data, including your new fields if you like
+    /* 1. Валидация ------------------------------------------------------ */
     $validated = $request->validate([
-        'order_id'                     => 'required|integer|exists:orders,id',
-        'products'                     => 'required|array',
-        'products.*.order_item_id'     => 'required|integer|exists:order_items,id',
-        'products.*.packer_quantity'   => 'required|integer|min:1',
-        // Optional: if you want to ensure these exist or are numeric, etc.
-        // 'products.*.unit_measurement' => 'nullable|string',
-        // 'products.*.price'            => 'nullable|numeric',
-        // 'products.*.totalsum'         => 'nullable|numeric',
+        'order_id'                   => 'required|uuid|exists:orders,id',
+        'courier_id'                 => 'required|uuid|exists:users,id',
+        'products'                   => 'required|array',
+        'products.*.order_item_id'   => 'required|uuid|exists:order_items,id',
+        'products.*.packer_quantity' => 'required|numeric|min:1',
     ]);
 
-    // 2) Retrieve the order
-    $user = Auth::user();
+    /* 2. Заказ + текущий паковщик -------------------------------------- */
+    $user  = Auth::user();                       // паковщик
     $order = Order::findOrFail($validated['order_id']);
 
-    // 3) Assign the packer and update status
-    $order->packer_id = $user->id;
-    // Optionally, if you're using status_id instead of 'status',
-    // do: $order->status_id = 2; // "processing" in your status_docs table
-    // or if you're using a string-based column:
-    $order->status_id = 2;
+    /* 3. ID статуса «Передано курьеру» -------------------------------- */
+    $handedToCourierId = StatusDoc::where('name', 'Передано курьеру')
+                          ->value('id');          // UUID или null
+
+    if (!$handedToCourierId) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'Статус «Передано курьеру» не найден в status_docs',
+        ], 500);
+    }
+
+    /* 4. Обновляем «шапку» заказа -------------------------------------- */
+    $order->packer_id  = $user->id;
+    $order->courier_id = $validated['courier_id'];
+    $order->status_id  = $handedToCourierId;     // ← только это заменили
     $order->save();
 
-    // 4) Update each order item's fields
-    foreach ($validated['products'] as $itemData) {
-        // Ensure this item truly belongs to the same order
-        $orderItem = OrderItem::where('id', $itemData['order_item_id'])
-            ->where('order_id', $order->id)
-            ->first();
+    /* 5. Строки заказа ------------------------------------------------- */
+    foreach ($validated['products'] as $row) {
+        $item = OrderItem::where('id', $row['order_item_id'])
+                         ->where('order_id', $order->id)
+                         ->first();
 
-        if ($orderItem) {
-            // Required field from validation
-            $orderItem->packer_quantity = $itemData['packer_quantity'];
-
-            // If you want to store unit_measurement, price, totalsum from the request:
-            if (isset($itemData['unit_measurement'])) {
-                $orderItem->unit_measurement = $itemData['unit_measurement'];
-            }
-            if (isset($itemData['price'])) {
-                $orderItem->price = $itemData['price'];
-            }
-            if (isset($itemData['totalsum'])) {
-                $orderItem->totalsum = $itemData['totalsum'];
-            }
-
-            $orderItem->save();
+        if ($item) {
+            $item->packer_quantity = $row['packer_quantity'];
+            if (isset($row['unit_measurement'])) $item->unit_measurement = $row['unit_measurement'];
+            if (isset($row['price']))            $item->price            = $row['price'];
+            if (isset($row['totalsum']))         $item->totalsum         = $row['totalsum'];
+            $item->save();
         }
     }
 
-    // 5) Return success response with fresh data
+    /* 6. Ответ --------------------------------------------------------- */
     return response()->json([
         'success' => true,
-        'message' => 'Invoice created successfully, packer assigned.',
+        'message' => 'Документ создан. Курьер назначен, статус обновлён.',
         'order'   => $order->fresh('orderItems'),
     ], 201);
 }
@@ -133,24 +127,7 @@ class PackerController extends Controller
 //     return null; // Handle the case where no valid source is found
 // }
 
-public function get_packer_document($packerDocumentId)
-{
-    $packerDocument = PackerDocument::with([
-        'orderItems.productSubCard.productCard', // Eager load relationships for order items
-    ])->find($packerDocumentId);
 
-    if (!$packerDocument) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Packer Document not found.',
-        ], 404);
-    }
-
-    return response()->json([
-        'success' => true,
-        'data' => $packerDocument,
-    ]);
-}
 
 
 public function getAllInstances()
@@ -187,7 +164,15 @@ public function getAllInstances()
         ], 500);
     }
 }
+public function allCouriers(): JsonResponse
+    {
+        $couriers = User::whereHas('roles', fn($q) => $q->where('name', 'courier'))
+                        ->with('roles')              // eager-load if you need
+                        ->orderBy('first_name')
+                        ->get();
 
+        return response()->json($couriers);          // 200 OK
+    }
 
 public function getManagerWarehouseReport(Request $request)
 {

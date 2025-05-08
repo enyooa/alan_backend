@@ -1,11 +1,11 @@
 <template>
   <div class="dashboard-container">
     <!-- Sidebar -->
-    <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" />
+    <!-- <Sidebar :isSidebarOpen="isSidebarOpen" @toggleSidebar="toggleSidebar" /> -->
 
     <!-- Main content area -->
     <div class="main-content">
-      <Header />
+      <!-- <Header /> -->
 
       <main class="content">
         <!-- Dynamic Report Page Content -->

@@ -16,14 +16,11 @@ use Illuminate\Support\Facades\Log;
 use App\Models\ProductCard;
 use App\Models\ProductSubCard;
 use App\Models\Provider;
-use App\Models\ReferenceItem;
 use App\Models\Sale;
 use App\Models\User;
 use App\Models\WarehouseItem;
-use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -128,361 +125,256 @@ class AdminController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Price Offer Requests
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Create a new Offer Request
-     */
-    public function createOfferRequest(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|exists:users,id',
-            'product_id' => 'required|exists:basic_products_prices,id',
-            'unit_measurement' => 'required|string',
-            'amount' => 'required|integer',
-            'price' => 'required|numeric',
-            'choice_status' => 'nullable|string',
-            'address_id' => 'nullable|integer'
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        $priceRequest = PriceRequest::create($request->all());
-
-        return response()->json([
-            'message' => 'Offer request created successfully',
-            'data' => $priceRequest
-        ], 201);
-    }
-
-    /**
-     * Get all Offer Requests
-     */
-    public function getOfferRequests()
-    {
-        $requests = PriceRequest::with(['user', 'product'])->get();
-        return response()->json($requests, 200);
-    }
-
-    /**
-     * Get a specific Offer Request
-     */
-    public function getOfferRequest($id)
-    {
-        $request = PriceRequest::with(['user', 'product'])->find($id);
-
-        if (!$request) {
-            return response()->json(['message' => 'Request not found'], 404);
-        }
-
-        return response()->json($request, 200);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Admin Warehouse
-    |--------------------------------------------------------------------------
-    */
-
-
 
     /**
      * веб версия приход товаров
      */
     public function storeIncome(Request $request)
 {
+    // Посмотрим, что пришло:
     Log::info($request->all());
 
-    $products   = $request->input('products',  []);
-    $expensesIn = $request->input('expenses',  []);
+    // Массив товаров
+    $products = $request->input('products', []);
+    // Массив расходов
+    $expenses = $request->input('expenses', []);
+
+    // ID поставщика (из фронта)
+    $providerId = $request->input('provider_id');
+    // Дата документа (из фронта)
+    $docDate = $request->input('document_date');
+    // Выбранный "Склад поступления" (заменяем прежний assigned_user_id)
+    $warehouseId = $request->input('assigned_warehouse_id'); // может быть null
 
     if (empty($products)) {
-        return response()->json(['success' => false, 'error' => 'No products given'], 422);
+        return response()->json(['success'=>false, 'error'=>'No products given'], 422);
     }
 
     DB::beginTransaction();
     try {
-        /* ───── 1. «Шапка» документа ───── */
+        // Ищем запись DocumentType, где code='income'
         $docType = DocumentType::where('code', 'income')->firstOrFail();
 
+        // Создаём «шапку» документа
         $doc = Document::create([
             'document_type_id' => $docType->id,
-            'status'           => '+',
-            'provider_id'      => $request->provider_id,
-            'document_date'    => $request->document_date ?? now(),
-            'comments'         => $request->comments,
-            'to_warehouse_id'  => $request->assigned_warehouse_id,
+            'status'           => '+',           // Приход => статус "+"
+            'provider_id'      => $providerId,
+            'document_date'    => $docDate ?? now(),
+            'comments'         => $request->input('comments'),
+            // Вместо destination_user_id используем to_warehouse_id
+            'to_warehouse_id'  => $warehouseId,
+            'organization_id'  => $request->user()->organization_id
+
         ]);
 
-        /* ───── 2. Товарные позиции ───── */
-        foreach ($products as $p) {
+        // Сохраняем строки (DocumentItem) — историческая запись о поступлении
+        foreach ($products as $item) {
             DocumentItem::create([
                 'document_id'         => $doc->id,
-                'product_subcard_id'  => $p['product_subcard_id'] ?? null,
-                'unit_measurement'    => $p['unit_measurement']   ?? null,
-                'quantity'            => $p['quantity']           ?? 0,
-                'brutto'              => $p['brutto']             ?? 0,
-                'netto'               => $p['netto']              ?? 0,
-                'price'               => $p['price']              ?? 0,
-                'total_sum'           => $p['total_sum']          ?? 0,
-                'additional_expenses' => $p['additional_expenses']?? 0,
-                'cost_price'          => $p['cost_price']         ?? 0,
-                'net_unit_weight'     => ($p['quantity'] ?? 0) > 0
-                                        ? $p['netto'] / $p['quantity']
-                                        : 0,
+                'product_subcard_id'  => $item['product_subcard_id']  ?? null,
+                'unit_measurement'    => $item['unit_measurement']    ?? null,
+                'quantity'            => $item['quantity']            ?? 0,
+                'brutto'              => $item['brutto']              ?? 0,
+                'netto'               => $item['netto']               ?? 0,
+                'price'               => $item['price']               ?? 0,
+                'total_sum'           => $item['total_sum']           ?? 0,
+                'additional_expenses' => $item['additional_expenses'] ?? 0,
+                'cost_price'          => $item['cost_price']          ?? 0,
+                'net_unit_weight'     => ($item['quantity'] ?? 0) > 0
+        ? ($item['netto'] / $item['quantity'])
+        : 0,
             ]);
 
-            /* — текущие остатки на складе (WarehouseItem) — */
-            if ($request->assigned_warehouse_id) {
-                $wh = WarehouseItem::firstOrNew([
-                    'warehouse_id'       => $request->assigned_warehouse_id,
-                    'product_subcard_id' => $p['product_subcard_id'] ?? null,
-                    'unit_measurement'   => $p['unit_measurement']   ?? null,
-                ]);
+            // Теперь добавим/обновим запись(и) в WarehouseItem (текущие остатки на складе)
+            if ($warehouseId) {
+                // Находим или создаём WarehouseItem для этого склада и продукта
+                $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                    ->where('product_subcard_id', $item['product_subcard_id'] ?? null)
+                    ->where('unit_measurement', $item['unit_measurement'] ?? null)
+                    ->first();
 
-                $wh->quantity    += $p['quantity'] ?? 0;
-                $wh->brutto      += $p['brutto']   ?? 0;
-                $wh->netto       += $p['netto']    ?? 0;
-                $wh->total_sum   += $p['total_sum']?? 0;
-                $wh->price        = $p['price']    ?? 0;
-                $wh->cost_price   = $p['cost_price'] ?? 0;
-                $wh->save();
+                if (!$whItem) {
+                    // Создаём новую запись
+                    $whItem = new WarehouseItem();
+                    $whItem->warehouse_id       = $warehouseId;
+                    $whItem->product_subcard_id = $item['product_subcard_id']  ?? null;
+                    $whItem->unit_measurement   = $item['unit_measurement']    ?? null;
+                    $whItem->quantity           = 0;
+                    $whItem->brutto             = 0;
+                    $whItem->netto              = 0;
+                    $whItem->total_sum          = 0;
+                }
+
+                // Логика обновления (сложение, если хотим хранить остаток)
+                $whItem->quantity            += ($item['quantity']            ?? 0);
+                $whItem->brutto             += ($item['brutto']              ?? 0);
+                $whItem->netto              += ($item['netto']               ?? 0);
+                // Текущая цена/себестоимость может быть tricky:
+                // - Можем установить последнюю,
+                // - или высчитывать среднюю,
+                // - или хранить отдельно. Для примера просто перезаписываем:
+                $whItem->price               = $item['price']               ?? 0;
+                // Аналогично для total_sum — можно суммировать:
+                $whItem->total_sum          += ($item['total_sum']           ?? 0);
+                // additional_expenses / cost_price — тоже могут потребовать средней арифметики, но тут упростим:
+                $whItem->additional_expenses = $item['additional_expenses']  ?? 0;
+                $whItem->cost_price          = $item['cost_price']           ?? 0;
+
+                $whItem->save();
             }
         }
 
-        /* ───── 3. Доп. расходы ───── */
-        foreach ($expensesIn as $e) {
-            $providerId = $e['provider_id'] ?? null;
-            $baseItem   = ReferenceItem::find($e['expense_id']);
-            if (!$baseItem) { continue; }
-
-            /* 3-a. если тот же поставщик → update value */
-            if (($baseItem->provider_id ?? null) === $providerId) {
-                $baseItem->update(['value' => $e['amount'] ?? 0]);
-                $refId = $baseItem->id;
-            }
-            /* 3-b. другой поставщик → клон либо уже-существующая строка */
-            else {
-                $clone = ReferenceItem::firstOrCreate(
-                    [
-                        'reference_id' => $baseItem->reference_id,
-                        'name'         => $baseItem->name,
-                        'provider_id'  => $providerId,
-                    ],
-                    [
-                        'description' => $baseItem->description,
-                        'type'        => $baseItem->type,
-                        'country'     => $baseItem->country,
-                        'value'       => $e['amount'] ?? 0,
-                    ]
-                );
-                // если строка существовала – обновим value
-                if (!$clone->wasRecentlyCreated) {
-                    $clone->update(['value' => $e['amount'] ?? 0]);
-                }
-                $refId = $clone->id;
-            }
-
-            /* 3-c. pivot-связь document ↔ expense */
-            Expense::firstOrCreate([
-                'document_id'       => $doc->id,
-                'reference_item_id' => $refId,
-                'provider_id'       => $providerId,
+        // Обновляем или связываем расходы (примерно как у вас было)
+        foreach ($expenses as $exp) {
+            $existingExpense = Expense::findOrFail($exp['expense_id']);
+            $existingExpense->update([
+                'document_id' => $doc->id,   // теперь привязываем к этому документу
+                'name'        => $exp['name']   ?? 'Расход',
+                'amount'      => $exp['amount'] ?? 0,
             ]);
         }
 
         DB::commit();
-        return response()->json([
-            'success' => true,
-            'message' => 'Документ (Приход) сохранён',
-            'doc_id'  => $doc->id,
-        ], 201);
+        return response()->json(['success' => true, 'message' => 'Документ (Приход) сохранён'], 201);
 
     } catch (\Throwable $e) {
         DB::rollBack();
-        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        return response()->json(['success' => false, 'error'=>$e->getMessage()], 500);
     }
 }
+
 
 // мобильнаяя версия админке приход товаров
-
-public function storeIncomes(Request $request): JsonResponse
+public function storeIncomes(Request $request)
 {
     Log::info($request->all());
+    // 1) Retrieve the entire array of “receivings” from the request
+    $receivings = $request->input('receivings', []);
 
-    $products   = $request->input('products',  []);
-    $expensesIn = $request->input('expenses',  []);
-
-    if (!$products) {
-        return response()->json(['success'=>false,'error'=>'No products given'],422);
-    }
-
-    DB::beginTransaction();
-    try {
-        /*─── 1. «Шапка» ───*/
-        $docType = DocumentType::where('code','income')->firstOrFail();
-
-        $doc = Document::create([
-            'document_type_id' => $docType->id,
-            'status'           => '+',
-            'provider_id'      => $request->providerId,
-            'document_date'    => Carbon::parse($request->docDate)->toDateString(),
-            'comments'         => $request->comments,
-            'to_warehouse_id'  => $request->assigned_warehouse_id,
-        ]);
-
-        /*─── 2. Товары ───*/
-        /* ─── 2. Товарные позиции ─── */
-foreach ($products as $row) {
-
-    /* 1. ID под-карточки и ID единицы */
-    $productId = data_get($row,'product.id');       // subcard id
-    $unitId    = data_get($row,'unit.id');          // ID справочника ReferenceItem
-
-    /* 2. Читаем НАЗВАНИЕ из БД, даже если клиент уже прислал name */
-    $unitName  = data_get($row,'unit.name');
-    if (!$unitName) {
-        $unitName = ReferenceItem::findOrFail($unitId)->name;
-    }
-
-    /* 3. Количество */
-    $qty = (float) ( $row['qtyTare'] ?? $row['qty'] ?? 0 );
-
-    /* 4. Записываем строку документа  ─ unit_measurement = NAME! */
-    DocumentItem::create([
-        'document_id'        => $doc->id,
-        'product_subcard_id' => $productId,
-        'unit_measurement'   => $unitName,          // ← только название
-        'quantity'           => $qty,
-        'brutto'             => $row['brutto']             ?? 0,
-        'netto'              => $row['netto']              ?? 0,
-        'price'              => $row['price']              ?? 0,
-        'total_sum'          => $row['total_sum']          ?? 0,
-        'additional_expenses'=> $row['additional_expenses']?? 0,
-        'cost_price'         => $row['cost_price']         ?? 0,
-        'net_unit_weight'    => $qty>0 ? ($row['netto']/$qty) : 0,
-    ]);
-
-    /* 5. Остаток на складе — ищем/создаём только по NAME */
-    $wh = WarehouseItem::firstOrNew([
-        'warehouse_id'       => $request->assigned_warehouse_id,
-        'product_subcard_id' => $productId,
-        'unit_measurement'   => $unitName,          // ← опять название
-    ]);
-
-    $wh->quantity            += $qty;
-    $wh->brutto              += $row['brutto']   ?? 0;
-    $wh->netto               += $row['netto']    ?? 0;
-    $wh->total_sum           += $row['total_sum']?? 0;
-    $wh->price                = $row['price']    ?? 0;
-    $wh->cost_price           = $row['cost_price'] ?? 0;
-    $wh->additional_expenses += $row['additional_expenses'] ?? 0;
-    $wh->save();
-}
-
-        /*─── 3. Доп-расходы (без изменений) ───*/
-        foreach ($expensesIn as $e) {
-            $expenseId  = data_get($e,'name.id');
-            $providerId = data_get($e,'provider.id');
-            $amount     = $e['amount'] ?? 0;
-
-            $base = ReferenceItem::find($expenseId);
-            if (!$base) { continue; }
-
-            $refItem = ($base->provider_id ?? null) === $providerId
-                       ? tap($base)->update(['value'=>$amount])
-                       : ReferenceItem::firstOrCreate(
-                            ['reference_id'=>$base->reference_id,'name'=>$base->name,'provider_id'=>$providerId],
-                            array_merge($base->only(['description','type','country']),['value'=>$amount])
-                         );
-
-            Expense::firstOrCreate([
-                'document_id'       => $doc->id,
-                'reference_item_id' => $refItem->id,
-                'provider_id'       => $providerId,
-            ]);
-        }
-
-        DB::commit();
-        return response()->json(['success'=>true,'message'=>'Приход сохранён','doc_id'=>$doc->id],201);
-
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
-    }
-}
-
-public function updateIncomes(Request $request, Document $document)
-{
-    /* ---------- 0. Проверки ---------- */
-
-    // документ должен иметь тип
-    if (!$document->documentType) {
+    // 2) If nothing is sent, throw a validation error
+    if (empty($receivings)) {
         return response()->json([
             'success' => false,
-            'error'   => 'У документа не указан тип (document_type_id)'
-        ], 400);
-    }
-
-    // и быть именно «приходом»
-    if ($document->documentType->code !== 'income') {
-        return response()->json([
-            'success' => false,
-            'error'   => 'Документ не является приходом (income)'
-        ], 400);
-    }
-
-    $products   = $request->input('products',  []);
-    $expensesIn = $request->input('expenses',  []);
-
-    if (empty($products)) {
-        return response()->json([
-            'success' => false,
-            'error'   => 'No products given'
+            'error'   => 'No receiving data was provided'
         ], 422);
     }
 
-    /* ---------- 1. Транзакция ---------- */
+    // 3) Wrap everything in a DB transaction so that if anything fails,
+    //    all changes will be rolled back
     DB::beginTransaction();
     try {
-        /* A. откатываем старые остатки */
-        $this->revertWarehouseBalances($document);
+        // Find the DocumentType record for an “income” doc
+        $docType = DocumentType::where('code', 'income')->firstOrFail();
 
-        /* B. чистим старые строки */
-        $document->items()->delete();      // товары
-        $document->expenses()->delete();   // расходы
+        // 4) Loop through each “receiving” item
+        foreach ($receivings as $receiving) {
 
-        /* C. обновляем «шапку» */
-        $document->update([
-            'provider_id'     => $request->providerId,
-            'document_date'   => $request->docDate ?? now(),
-            'comments'        => $request->comments,
-            'to_warehouse_id' => $request->assigned_warehouse_id,
-        ]);
+            // Extract data needed to create a Document
+            $providerId  = $receiving['provider_id']     ?? null;
+            $docDate     = $receiving['document_date']   ?? now();
+            $warehouseId = $receiving['warehouse_id']    ?? null;
+            $products    = $receiving['products']        ?? [];
+            $expenses    = $receiving['expenses']        ?? [];
+            $comments    = $receiving['comments']        ?? null;
 
-        /* D. добавляем новые товары и остатки */
-        $this->insertItems(
-            $document,
-            $products,
-            $request->assigned_warehouse_id
-        );
+            // Make sure we have at least some products for this document
+            if (empty($products)) {
+                // Depending on your logic, you could skip this receiving
+                // or throw an error. Here, let’s throw an error:
+                throw new \Exception("No products specified for one of the receivings");
+            }
 
-        /* E. добавляем новые расходы */
-        $this->syncExpenses($document, $expensesIn);
+            // 5) Create the “header” row in `documents` table
+            $doc = Document::create([
+                'document_type_id' => $docType->id,
+                'status'           => '+',  // '+' to indicate income
+                'provider_id'      => $providerId,
+                'document_date'    => $docDate,
+                'comments'         => $comments,
+                'to_warehouse_id'  => $warehouseId,
+            ]);
 
+            // 6) For each product, create a DocumentItem and update WarehouseItem
+            foreach ($products as $item) {
+                DocumentItem::create([
+                    'document_id'         => $doc->id,
+                    'product_subcard_id'  => $item['product_subcard_id']  ?? null,
+                    'unit_measurement'    => $item['unit_measurement']    ?? null,
+                    'quantity'            => $item['quantity']            ?? 0,
+                    'brutto'              => $item['brutto']              ?? 0,
+                    'netto'               => $item['netto']               ?? 0,
+                    'price'               => $item['price']               ?? 0,
+                    'total_sum'           => $item['total_sum']           ?? 0,
+                    'additional_expenses' => $item['additional_expenses'] ?? 0,
+                    'cost_price'          => $item['cost_price']          ?? 0,
+                    'net_unit_weight'     => ($item['quantity'] ?? 0) > 0
+        ? ($item['netto'] / $item['quantity'])
+        : 0,
+                ]);
+
+                // If warehouseId is present, update or create a WarehouseItem
+                if ($warehouseId) {
+                    $whItem = WarehouseItem::where('warehouse_id', $warehouseId)
+                        ->where('product_subcard_id', $item['product_subcard_id'] ?? null)
+                        ->where('unit_measurement', $item['unit_measurement'] ?? null)
+                        ->first();
+
+                    // If no existing record found, create a new blank one
+                    if (!$whItem) {
+                        $whItem = new WarehouseItem();
+                        $whItem->warehouse_id       = $warehouseId;
+                        $whItem->product_subcard_id = $item['product_subcard_id']  ?? null;
+                        $whItem->unit_measurement   = $item['unit_measurement']    ?? null;
+                        $whItem->quantity           = 0;
+                        $whItem->brutto             = 0;
+                        $whItem->netto              = 0;
+                        $whItem->total_sum          = 0;
+                    }
+
+                    // Accumulate the new quantities and sums
+                    $whItem->quantity    += ($item['quantity']  ?? 0);
+                    $whItem->brutto     += ($item['brutto']    ?? 0);
+                    $whItem->netto      += ($item['netto']     ?? 0);
+                    // Overwrite or recalculate the price as needed
+                    $whItem->price       = ($item['price']     ?? 0);
+                    // Summation for total_sum
+                    $whItem->total_sum  += ($item['total_sum'] ?? 0);
+
+                    // Optional: additional_expenses & cost_price
+                    // In practice you might want average calculations; here we just overwrite
+                    $whItem->additional_expenses = ($item['additional_expenses'] ?? 0);
+                    $whItem->cost_price          = ($item['cost_price']          ?? 0);
+
+                    $whItem->save();
+                }
+            }
+
+            // 7) Handle expenses
+            //    Example approach (create new expense entries):
+            foreach ($expenses as $exp) {
+                // If your front provides an 'expense_id', you could do findOrFail($exp['expense_id']) here
+                // but in your sample data we have only name and amount. So we just create a new record.
+                Expense::create([
+                    'document_id' => $doc->id,
+                    'name'        => $exp['name']   ?? 'Расход',
+                    'amount'      => $exp['amount'] ?? 0,
+                    'provider_id' => $exp['provider_id']  ?? null,
+
+                ]);
+            }
+        }
+
+        // 8) If we reach here without errors, commit the transaction
         DB::commit();
+
         return response()->json([
             'success' => true,
-            'message' => 'Документ обновлён',
-            'doc_id'  => $document->id
-        ]);
+            'message' => 'All receiving documents stored successfully'
+        ], 201);
+
     } catch (\Throwable $e) {
+        // 9) Roll everything back if something fails
         DB::rollBack();
         return response()->json([
             'success' => false,
@@ -490,116 +382,7 @@ public function updateIncomes(Request $request, Document $document)
         ], 500);
     }
 }
-/* -----------------------------------------------------------------
- |  Откатываем складские остатки
- * ----------------------------------------------------------------*/
-private function revertWarehouseBalances(Document $doc): void
-{
-    foreach ($doc->items as $item) {
 
-        // если в документе не указан склад – ничего не делаем
-        if (!$doc->to_warehouse_id) {
-            continue;
-        }
-
-        $wh = WarehouseItem::where([
-                  'warehouse_id'       => $doc->to_warehouse_id,
-                  'product_subcard_id' => $item->product_subcard_id,
-                  'unit_measurement'   => $item->unit_measurement,
-              ])->first();
-
-        if ($wh) {
-            // обычный decrement для каждой колонки
-            $wh->quantity   -= $item->quantity;
-            $wh->brutto     -= $item->brutto;
-            $wh->netto      -= $item->netto;
-            $wh->total_sum  -= $item->total_sum;
-
-            // не забываем сохранить
-            $wh->save();
-        }
-    }
-}
-
-/* -----------------------------------------------------------------
- |  Вставляем позиции и корректируем склад
- * ----------------------------------------------------------------*/
-private function insertItems(Document $doc, array $products, ?int $warehouseId): void
-{
-    foreach ($products as $p) {
-
-        $productId = data_get($p, 'product.id');
-        $unitId    = data_get($p, 'unit.id');
-        $rawQty    = data_get($p, 'qtyTare');
-        $qty       = ($rawQty === '' || $rawQty === null) ? 0 : (float)$rawQty;
-
-        /* --- создаём строку документа --- */
-        $doc->items()->create([
-            'product_subcard_id'  => $productId,
-            'unit_measurement'    => $unitId,
-            'quantity'            => $qty,
-            'brutto'              => $p['brutto']             ?? 0,
-            'netto'               => $p['netto']              ?? 0,
-            'price'               => $p['price']              ?? 0,
-            'total_sum'           => $p['total_sum']          ?? 0,
-            'additional_expenses' => $p['additional_expenses']?? 0,
-            'cost_price'          => $p['cost_price']         ?? 0,
-            'net_unit_weight'     => $qty > 0 ? ($p['netto'] / $qty) : 0,
-        ]);
-
-        /* --- корректируем остатки склада (если указан) --- */
-        if ($warehouseId) {
-
-            $wh = WarehouseItem::firstOrNew([
-                     'warehouse_id'       => $warehouseId,
-                     'product_subcard_id' => $productId,
-                     'unit_measurement'   => $unitId,
-                 ]);
-
-            // если запись новая – начнём с нулей
-            $wh->quantity   = ($wh->exists ? $wh->quantity   : 0) + $qty;
-            $wh->brutto     = ($wh->exists ? $wh->brutto     : 0) + ($p['brutto']    ?? 0);
-            $wh->netto      = ($wh->exists ? $wh->netto      : 0) + ($p['netto']     ?? 0);
-            $wh->total_sum  = ($wh->exists ? $wh->total_sum  : 0) + ($p['total_sum'] ?? 0);
-
-            $wh->price      = $p['price']       ?? 0;
-            $wh->cost_price = $p['cost_price']  ?? 0;
-
-            $wh->save();
-        }
-    }
-}
-
-
-private function syncExpenses(Document $doc, array $expenses): void
-{
-    foreach ($expenses as $e) {
-        $expenseId  = data_get($e, 'name.id');
-        $providerId = data_get($e, 'provider.id');
-        $amount     = $e['amount'] ?? 0;
-
-        $base = ReferenceItem::find($expenseId);
-        if (!$base) continue;
-
-        if ($base->provider_id == $providerId) {
-            $base->update(['value' => $amount]);
-            $refId = $base->id;
-        } else {
-            $clone = ReferenceItem::firstOrCreate(
-                ['reference_id'=>$base->reference_id,'name'=>$base->name,'provider_id'=>$providerId],
-                ['description'=>$base->description,'type'=>$base->type,'country'=>$base->country,'value'=>$amount]
-            );
-            if (!$clone->wasRecentlyCreated) $clone->update(['value'=>$amount]);
-            $refId = $clone->id;
-        }
-
-        $doc->expenses()->create([
-            'reference_item_id' => $refId,
-            'provider_id'       => $providerId,
-        ]);
-    }
-}
-// update приход товара
 
 // мобильная версия админке списание товаров
 public function storeWriteOff(Request $request)
@@ -625,7 +408,7 @@ public function storeWriteOff(Request $request)
         foreach ($writeOffs as $wo) {
             // Валидируем данные внутри каждого "wo"
             $validator = Validator::make($wo, [
-                'warehouse_id'  => 'required|integer',
+                'warehouse_id'  => 'required|uuid',
                 'document_date' => 'required|date',
                 'items'         => 'required|array|min:1',
             ]);
@@ -782,9 +565,13 @@ public function storeWriteOff(Request $request)
 
     public function storeProvider(Request $request)
     {
+        Log::info($request->all());
         $request->validate(['name' => 'required']);
-        $provider = Provider::create($request->only('name'));
-        return response()->json($provider, 201);
+        $provider = Provider::create([
+        'name'            => $request->name,
+        'organization_id' => $request->user()->organization_id ?? null
+        ]);
+    return response()->json($provider, 201);
     }
 
     public function updateProvider(Request $request, Provider $provider)
@@ -955,21 +742,7 @@ public function storeWriteOff(Request $request)
     | Helper to find and validate an operation by type
     |--------------------------------------------------------------------------
     */
-    private function findOperationByType($type, $id)
-    {
-        switch ($type) {
-            case 'Карточка товара':
-                return ProductCard::findOrFail($id);
-            case 'Подкарточка товара':
-                return ProductSubCard::findOrFail($id);
-            case 'Продажа':
-                return Sale::findOrFail($id);
-            case 'Ценовое предложение':
-                return PriceRequest::findOrFail($id);
-            default:
-                throw new InvalidArgumentException('Invalid operation type');
-        }
-    }
+
 
     private function validateOperationFields(Request $request, $type)
     {
@@ -1015,4 +788,3 @@ public function storeWriteOff(Request $request)
 
 
 }
-

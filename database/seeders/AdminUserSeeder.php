@@ -17,8 +17,8 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Super',
             'last_name'       => 'Admin',
             'surname'         => 'Root',
-            'whatsapp_number' => '87056055050',
-            'password'        => Hash::make('SuperAdmin12345'), // choose your desired password
+            'whatsapp_number' => '7056055050',
+            'password'        => Hash::make('Admin12345'), // choose your desired password
         ]);
 
         $superAdminUser->roles()->attach(Role::where('name', 'superadmin')->first());
@@ -27,7 +27,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Ахат',
             'last_name'       => 'Админ',
             'surname'         => 'Админ',
-            'whatsapp_number' => '87056055051',
+            'whatsapp_number' => '7056055051',
             'password'        => Hash::make('Admin12345')
         ]);
         $adminUser->roles()->attach(Role::where('name', 'admin')->first());
@@ -37,7 +37,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Клиент',
             'last_name'       => 'Тест',
             'surname'         => 'Клиент',
-            'whatsapp_number' => '87056055052',
+            'whatsapp_number' => '7056055052',
             'password'        => Hash::make('Client12345')
         ]);
         $clientUser->roles()->attach(Role::where('name', 'client')->first());
@@ -47,7 +47,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Кассир',
             'last_name'       => 'Тест',
             'surname'         => 'Кассир',
-            'whatsapp_number' => '87056055053',
+            'whatsapp_number' => '7056055053',
             'password'        => Hash::make('Cashbox12345')
         ]);
         $cashboxUser->roles()->attach(Role::where('name', 'cashbox')->first());
@@ -57,7 +57,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Упаковщик',
             'last_name'       => 'Тест',
             'surname'         => 'Упаковщик',
-            'whatsapp_number' => '87056055054',
+            'whatsapp_number' => '7056055054',
             'password'        => Hash::make('Packer12345')
         ]);
         $packerUser->roles()->attach(Role::where('name', 'packer')->first());
@@ -67,7 +67,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Склад',
             'last_name'       => 'Тест',
             'surname'         => 'Склад',
-            'whatsapp_number' => '87056055055',
+            'whatsapp_number' => '7056055055',
             'password'        => Hash::make('Storage12345')
         ]);
         $storageUser->roles()->attach(Role::where('name', 'storager')->first());
@@ -77,7 +77,7 @@ class AdminUserSeeder extends Seeder
             'first_name'      => 'Курьер',
             'last_name'       => 'Тест',
             'surname'         => 'Курьер',
-            'whatsapp_number' => '87056055056',
+            'whatsapp_number' => '7056055056',
             'password'        => Hash::make('Courier12345')
         ]);
         $courierUser->roles()->attach(Role::where('name', 'courier')->first());

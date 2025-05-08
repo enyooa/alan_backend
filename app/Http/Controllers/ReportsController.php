@@ -285,7 +285,7 @@ class ReportsController extends Controller
     // 2) Add a top-level "group" row to label this section
     $finalRows[] = [
         'row_type' => 'group',
-        'label'    => 'Документы (income) + Расход (financial_orders.type=expense)',
+        'label'    => 'Документы приход + Расход ',//(financial_orders.type=expense)
         'name'     => null,
         'incoming' => null,
         'outgoing' => null,

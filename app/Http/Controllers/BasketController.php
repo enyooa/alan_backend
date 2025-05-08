@@ -6,9 +6,12 @@ use Illuminate\Http\Request;
 use App\Models\Basket;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\StatusDoc;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class BasketController extends Controller
 {
@@ -16,142 +19,171 @@ class BasketController extends Controller
      * Get all items in the user's basket.
      */
     public function index()
-    {
-        $userId = Auth::id();
+{
+    $userId = Auth::id();
 
-        $basketItems = Basket::where('id_client_request', $userId)
-            ->with(['productSubCard.productCard']) // Include related product details
-            ->get();
+    $basketItems = Basket::where('id_client_request', $userId)
+        ->with(['productSubCard.productCard'])
+        ->get();
 
-        if ($basketItems->isEmpty()) {
-            return response()->json(['basket' => []], 200);
-        }
-
-        $basketData = $basketItems->map(function ($item) {
-            return [
-                'id' => $item->id,
-                'quantity' => $item->quantity,
-                'price' => $item->price ?? 0, // Default price to 0 if null
-                'product_subcard_id' => $item->product_subcard_id,
-                'source_table' => $item->source_table,
-                'delivery_date' => $item->delivery_date,
-                'product_details' => [
-                    'subcard_name' => $item->productSubCard->name ?? null,
-                    'brutto' => $item->productSubCard->brutto ?? null,
-                    'netto' => $item->productSubCard->netto ?? null,
-                    'product_card' => [
-                        'name_of_products' => $item->productSubCard->productCard->name_of_products ?? null,
-                        'description' => $item->productSubCard->productCard->description ?? null,
-                        'photo_product' => $item->productSubCard->productCard->photo_product ?? null,
-                    ],
-                ],
-            ];
-        });
-
-        return response()->json(['basket' => $basketData], 200);
+    // если корзина пуста – просто []
+    if ($basketItems->isEmpty()) {
+        return response()->json(['basket' => []], 200);
     }
 
-    /**
-     * Add a product to the basket (HEAD version).
-     */
-    // app/Http/Controllers/BasketController.php
+    $basketData = $basketItems->map(function ($item) {
+        return [
+            'id'                  => $item->id,
+            'quantity'            => $item->quantity,
+            'price'               => $item->price ?? 0,
+            'product_subcard_id'  => $item->product_subcard_id,
+            'source_table'        => $item->source_table,
+            'source_table_id'     => $item->source_table_id,   // ← ДОБАВИЛИ ЭТО
+            'delivery_date'       => $item->delivery_date,
+            'product_details'     => [
+                'subcard_name' => $item->productSubCard->name ?? null,
+                'brutto'       => $item->productSubCard->brutto ?? null,
+                'netto'        => $item->productSubCard->netto ?? null,
+                'product_card' => [
+                    'name_of_products' => $item->productSubCard->productCard->name_of_products ?? null,
+                    'description'      => $item->productSubCard->productCard->description ?? null,
+                    'photo_product'    => $item->productSubCard->productCard->photo_product ?? null,
+                ],
+            ],
+        ];
+    });
 
-public function add(Request $request)
+    return response()->json(['basket' => $basketData], 200);
+}
+
+public function add(Request $request): JsonResponse
 {
+    $data = $request->validate([
+        'product_subcard_id' => ['required','uuid','exists:product_sub_cards,id'],
+        'source_table'       => ['required','string','in:sales,price_offer_items,favorites'],
+        'source_table_id'    => ['required','uuid'],
+        'amount'   => ['sometimes','numeric','gt:0'],
+        'quantity' => ['sometimes','numeric','gt:0'],
+        'price'    => ['required','numeric','gte:0'],
+        'total_sum'=> ['sometimes','numeric','gte:0'],
+        'totalsum' => ['sometimes','numeric','gte:0'],
+        'unit_measurement' => ['required','string','max:255'],
+    ]);
+
+    /* нормализация */
+    $data['quantity']  = $data['quantity'] ?? $data['amount'] ?? 1;
+    $data['total_sum'] = $data['total_sum']
+                      ?? $data['totalsum']
+                      ?? $data['quantity'] * $data['price'];
+
+    $userId = Auth::id();
+
+    /* ключи, которые делают запись «уникальной» */
+    $where = [
+        'id_client_request'  => $userId,
+        'product_subcard_id' => $data['product_subcard_id'],
+        'source_table'       => $data['source_table'],
+        'source_table_id'    => $data['source_table_id'],
+    ];
+
+    /* значения для обновления */
+    $payload = [
+        'price'            => $data['price'],
+        'unit_measurement' => $data['unit_measurement'],
+        'total_sum'        => DB::raw('COALESCE(total_sum,0) + '.$data['total_sum']),
+        // прибавляем количество
+        'quantity'         => DB::raw('COALESCE(quantity,0) + '.$data['quantity']),
+    ];
+
     try {
-        $validated = $request->validate([
-            'product_subcard_id' => 'required|integer',
-            'source_table'       => 'required|string|in:sales,price_offer_items,favorites',
-            'source_table_id'    => 'required|integer',
-            'quantity'           => 'required|integer',
-            'price'              => 'required|numeric|min:0',
-            // Add new validations:
-            'unit_measurement'   => 'required|string',
-            'totalsum'           => 'required|numeric|min:0',
-        ]);
-
-        $userId = Auth::id();
-
-        // Look for existing Basket item with the same subcard + source_table + source_table_id
-        $basketItem = Basket::where([
-            'id_client_request'  => $userId,
-            'product_subcard_id' => $validated['product_subcard_id'],
-            'source_table'       => $validated['source_table'],
-            'source_table_id'    => $validated['source_table_id'],
-        ])->first();
-
-        if ($basketItem) {
-            // Update the quantity and price
-            $basketItem->quantity += $validated['quantity'];
-            $basketItem->price = $validated['price'];
-
-            // Update the newly added fields:
-            $basketItem->unit_measurement = $validated['unit_measurement'];
-            $basketItem->totalsum = $validated['totalsum'];
-
-            // If quantity <= 0, remove item
-            if ($basketItem->quantity <= 0) {
-                $basketItem->delete();
-            } else {
-                $basketItem->save();
-            }
-        }
-        else {
-            // Only create a new item if quantity > 0
-            if ($validated['quantity'] > 0) {
-                Basket::create([
-                    'id_client_request'  => $userId,
-                    'product_subcard_id' => $validated['product_subcard_id'],
-                    'source_table'       => $validated['source_table'],
-                    'source_table_id'    => $validated['source_table_id'],
-                    'quantity'           => $validated['quantity'],
-                    'price'              => $validated['price'],
-                    // The new fields:
-                    'unit_measurement'   => $validated['unit_measurement'],
-                    'totalsum'           => $validated['totalsum'],
-                ]);
-            }
-        }
-
-        return response()->json(['success' => true], 201);
-
-    } catch (\Exception $e) {
-        Log::error("Basket add error: " . $e->getMessage());
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 400);
+        Basket::updateOrCreate($where, $payload);
+        return response()->json(['success' => true]);
+    } catch (\Throwable $e) {
+        Log::error('Basket add error', ['msg'=>$e->getMessage()]);
+        return response()->json(['success'=>false,'error'=>$e->getMessage()], 500);
     }
 }
+
+
+// app/Http/Controllers/BasketController.php
+public function changeQuantity(Request $request): JsonResponse
+{
+    $rules = [
+        'product_subcard_id' => ['required','uuid','exists:baskets,product_subcard_id'],
+        'source_table'       => ['required','string','in:sales,price_offer_items,favorites'],
+        'source_table_id'    => ['required','uuid'],
+        'type'               => ['required','string','in:increment,decrement'],
+        'step'               => ['sometimes','integer','min:1'], // ↓/↑ на сколько (по-умолчанию 1)
+    ];
+
+    try {
+        $data = $request->validate($rules);
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json(['errors' => $e->errors()], 422);
+    }
+
+    $step   = $data['step'] ?? 1;
+    $delta  = $data['type'] === 'decrement' ? -$step : $step;
+    $userId = Auth::id();
+
+    /** берём строку корзины пользователя */
+    $item = Basket::where([
+                'id_client_request'  => $userId,
+                'product_subcard_id' => $data['product_subcard_id'],
+                'source_table'       => $data['source_table'],
+                'source_table_id'    => $data['source_table_id'],
+            ])->first();
+
+    if (!$item) {
+        return response()->json(['error' => 'Basket item not found'], 404);
+    }
+
+    /** считаем, какое число получится после изменения */
+    $newQty = $item->quantity + $delta;
+
+    // ───────────────────────────────────────────────────────────────────
+    //  ЛОГИКА: меньше 1 не даём, но и запись не удаляем
+    // ───────────────────────────────────────────────────────────────────
+    if ($newQty < 1) {
+        $newQty = 1;             // «зажимаем» минимальное значение
+    }
+
+    $item->quantity = $newQty;
+    $item->save();
+
+    return response()->json([
+        'success'  => true,
+        'quantity' => $item->quantity,
+    ]);
+}
+
 
 
     /**
      * Remove a product from the basket.
      */
-    public function remove(Request $request)
-    {
-        $validated = $request->validate([
-            'product_subcard_id' => 'required|exists:baskets,product_subcard_id',
-        ]);
+    public function destroy(int $id): JsonResponse
+{
+    $userId = Auth::id();
 
-        $userId = Auth::id();
+    // ищем только в корзине текущего пользователя
+    $basketItem = Basket::where('id_client_request', $userId)
+                        ->find($id);
 
-        $basketItem = Basket::where('id_client_request', $userId)
-            ->where('product_subcard_id', $validated['product_subcard_id'])
-            ->first();
-
-        if (!$basketItem) {
-            return response()->json(['error' => 'Product not found in basket'], 404);
-        }
-
-        $basketItem->delete();
-
+    if (!$basketItem) {
         return response()->json([
-            'success' => true,
-            'message' => 'Product removed from basket'
-        ], 200);
+            'success' => false,
+            'error'   => 'Product not found in basket'
+        ], 404);
     }
 
+    $basketItem->delete();
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Product removed from basket'
+    ]);
+}
     /**
      * Clear all items from the user's basket.
      */
@@ -169,50 +201,88 @@ public function add(Request $request)
     /**
      * Place an order from the basket.
      */
-    public function placeOrder(Request $request)
-{
-    Log::info($request->all());
-    $user = Auth::user();
-    $address = $request->address;
 
-    if (!$address) {
-        return response()->json(['error' => 'User has no associated address'], 400);
-    }
+     public function placeOrder(Request $request): JsonResponse
+     {
+         /* ───── 1.  ВАЛИДАЦИЯ ───── */
+         $request->validate([
+             'address' => ['required','string','max:255'],
+         ]);
 
-    $basketItems = Basket::where('id_client_request', $user->id)->get();
-    if ($basketItems->isEmpty()) {
-        return response()->json(['error' => 'Your basket is empty'], 400);
-    }
+         $user    = Auth::user();
+         $address = $request->input('address');
 
-    // Instead of 'status' => 'pending', use 'status_id' => 1
-    $order = Order::create([
-        'user_id'    => $user->id,
-        'status_id'  => 1,         // 1 => "ожидание" in status_docs
-        'address'    => $address,
-    ]);
+         $basket  = Basket::where('id_client_request', $user->id)->get();
+         if ($basket->isEmpty()) {
+             return response()->json(['error' => 'Your basket is empty'], 400);
+         }
 
-    foreach ($basketItems as $item) {
-        OrderItem::create([
-            'order_id'           => $order->id,
-            'product_subcard_id' => $item->product_subcard_id,
-            'source_table'       => $item->source_table,
-            'source_table_id'    => $item->source_table_id,
-            'quantity'           => $item->quantity,
-            'price'              => $item->price,
-            'unit_measurement'   => $item->unit_measurement,  // new
-            'totalsum'           => $item->price * $item->quantity,          // new
-        ]);
-    }
+         /* ───── 2.  НАХОДИМ id статуса «ожидание» ───── */
+         $waitingStatusId = StatusDoc::where('name', 'на фасовке')
+                             ->value('id');                 // вернёт UUID или null
 
+         if (!$waitingStatusId) {
+             return response()->json([
+                 'success' => false,
+                 'error'   => 'Статус «ожидание» не найден в таблице status_docs',
+             ], 500);
+         }
 
-    Basket::where('id_client_request', $user->id)->delete();
+         /* ───── 3.  ТРАНЗАКЦИЯ ───── */
+         DB::beginTransaction();
+         try {
+             /* 3-A. создаём «шапку» Order */
+             $order = Order::create([
+                 'id'              => (string) Str::uuid(),    // если PK – UUID
+                 'user_id'         => $user->id,
+                 'organization_id' => $user->organization_id,
+                 'status_id'       => $waitingStatusId,
+                 'address'         => $address,
+                 'total_sum'       => 0,                       // заполним ниже
+             ]);
 
-    return response()->json([
-        'success' => true,
-        'order'   => $order
-    ]);
-}
+             /* 3-B. строки заказа + итог */
+             $total = 0;
 
+             foreach ($basket as $row) {
+                 $lineSum = $row->total_sum ?? $row->price * $row->quantity;
+
+                 $order->orderItems()->create([
+                     'product_subcard_id' => $row->product_subcard_id,
+                     'source_table'       => $row->source_table,
+                     'source_table_id'    => $row->source_table_id,
+                     'quantity'           => $row->quantity,
+                     'price'              => $row->price,
+                     'unit_measurement'   => $row->unit_measurement,
+                     'totalsum'           => $lineSum,
+                 ]);
+
+                 $total += $lineSum;
+             }
+
+             /* 3-C. обновляем total_sum в Order */
+             $order->update(['total_sum' => $total]);
+
+             /* 3-D. очищаем корзину пользователя */
+             Basket::where('id_client_request', $user->id)->delete();
+
+             DB::commit();
+
+             return response()->json([
+                 'success' => true,
+                 'order'   => $order->load('orderItems'),
+             ], 201);
+
+         } catch (\Throwable $e) {
+             DB::rollBack();
+             Log::error('Place order error', ['msg' => $e->getMessage()]);
+
+             return response()->json([
+                 'success' => false,
+                 'error'   => 'Could not create order: '.$e->getMessage(),
+             ], 500);
+         }
+     }
     /**
      * Get the details of an order, including product subcards.
      */
