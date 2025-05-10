@@ -30,37 +30,24 @@ return [
 
     'connections' => [
 
-        'pusher' => [
-    'driver' => 'pusher',
-    'key' => env('PUSHER_APP_KEY', 'cash_control_back'),
-    'secret' => env('PUSHER_APP_SECRET', 'cash_control_backsecret'),
-    'app_id' => env('PUSHER_APP_ID', 'cash_control_back007'),
-    'options' => [
-        'cluster' => env('PUSHER_APP_CLUSTER', 'mt1'),
-        'useTLS' => false,
-        'host' => '127.0.0.1',
-        'port' => 6001,
-        'scheme' => 'http',
-    ],
-],
-        'ably' => [
-            'driver' => 'ably',
-            'key' => env('ABLY_KEY'),
+    'pusher' => [
+        'driver'  => 'pusher',
+        'key'     => env('PUSHER_APP_KEY'),
+        'secret'  => env('PUSHER_APP_SECRET'),
+        'app_id'  => env('PUSHER_APP_ID'),
+        'options' => [
+            'host'   => env('LARAVEL_WEBSOCKETS_HOST', '127.0.0.1'),
+            'port'   => env('LARAVEL_WEBSOCKETS_PORT', 6001),
+            'scheme' => 'http',             // 'https' if SSL on 6001
+            'path'   => env('LARAVEL_WEBSOCKETS_PATH', '/app'),
+            'encrypted' => false,           // true if SSL
         ],
+    ],
 
-        'redis' => [
+    'redis' => [
             'driver' => 'redis',
             'connection' => 'default',
         ],
-
-        'log' => [
-            'driver' => 'log',
-        ],
-
-        'null' => [
-            'driver' => 'null',
-        ],
-
-    ],
+],
 
 ];

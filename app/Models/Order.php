@@ -25,7 +25,9 @@ class Order extends Model
         'address',
         'packer_id',
         'courier_id',
-        'organization_id'
+        'organization_id',
+        'place_quantity',          // ← добавили
+
 
     ];
     public function packer()
@@ -52,6 +54,12 @@ public function client()
 public function statusDoc()
 {
     return $this->belongsTo(StatusDoc::class, 'status_id');
+}
+// app/Models/Order.php
+public function organization()
+{
+    return $this->belongsTo(\App\Models\Organization::class, 'organization_id')
+                ->select('id', 'name');       // только нужные поля
 }
 
 }

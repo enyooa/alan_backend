@@ -11,6 +11,7 @@ use App\Models\AdminCashes;
 use App\Models\Expense;
 use App\Models\FinancialElement;
 use App\Models\Reference;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -25,10 +26,25 @@ use Illuminate\Validation\Rule;
 class ReferenceController extends Controller
 {
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        /* ① product cards + nested sub-cards (eager-loaded) */
-        $cards = ProductCard::with('subCards:id,product_card_id,name')
+        /* ------------------------------------------------------------
+         * 1.   Строка поиска.  trim()-им пробелы; если пустая -
+         *      просто вернём полный список (LIKE не выполняется).
+         * ---------------------------------------------------------- */
+        $term = trim($request->query('search', ''));        // ?search=…
+        $has  = $term !== '';
+
+        /* ------------------------------------------------------------
+         * 2.   Product cards  (с eager-loaded sub-cards)
+         * ---------------------------------------------------------- */
+        $cards = ProductCard::with([
+                    'subCards:id,product_card_id,name'
+                 ])
+                 ->when($has, fn ($q) =>
+                     $q->where('name_of_products', 'like', "%{$term}%")
+                       ->orWhere('description',      'like', "%{$term}%")
+                 )
                  ->orderBy('name_of_products')
                  ->get()
                  ->map(fn ($c) => [
@@ -38,21 +54,69 @@ class ReferenceController extends Controller
                      'country'     => $c->country,
                      'type'        => $c->type,
                      'photo_url'   => $c->photo_product
-                                       ? Url::to('storage/'.$c->photo_product)
-                                       : null,
-                     'sub_cards'   => $c->subCards->map(fn ($s) => [
-                                          'id'   => $s->id,
-                                          'name' => $s->name,
-                                      ]),
-                 ]);
-        $subcards = ProductSubCard::all();
-        /* ② all units, providers, addresses (tiny lists) */
-        $units     = Unit_measurement::select('id','name','tare')->orderBy('name')->get();
-        $providers = Provider::select('id','name')->orderBy('name')->get();
-        $addresses = Address ::select('id','name')->orderBy('name')->get();
-        $expenses  = Expense ::all();
-        $financial_elements = FinancialElement::all();
-        return response()->json(compact('cards','subcards','units','providers','addresses','expenses','financial_elements'));
+                                        ? URL::to('storage/'.$c->photo_product)
+                                        : null,
+                     'sub_cards'   => $c->subCards
+        ->when($has, fn ($col) =>
+            $col->where('name', 'like', "%{$term}%")
+        )
+        ->map(fn ($s) => [
+            'id'   => $s->id,
+            'name' => $s->name,
+        ]),
+    ]);
+
+        /* ------------------------------------------------------------
+         * 3.   Подкарточки отдельно (для автокомплитов и т.п.)
+         * ---------------------------------------------------------- */
+        $subcards = ProductSubCard::select('id','product_card_id','name')
+                      ->when($has, fn ($q) =>
+                          $q->where('name', 'like', "%{$term}%")
+                      )
+                      ->orderBy('name')
+                      ->get();
+
+        /* ------------------------------------------------------------
+         * 4.   Прочие справочники (ед. изм., адреса, …)
+         * ---------------------------------------------------------- */
+        $units  = Unit_measurement::select('id','name','tare')
+                    ->when($has, fn ($q) =>
+                        $q->where('name', 'like', "%{$term}%")
+                    )
+                    ->orderBy('name')->get();
+
+        $providers = Provider::select('id','name')
+                      ->when($has, fn ($q) =>
+                          $q->where('name', 'like', "%{$term}%")
+                      )
+                      ->orderBy('name')->get();
+
+        $addresses = Address::select('id','name')
+                     ->when($has, fn ($q) =>
+                         $q->where('name', 'like', "%{$term}%")
+                     )
+                     ->orderBy('name')->get();
+
+        $expenses = Expense::when($has, fn ($q) =>
+                         $q->where('name', 'like', "%{$term}%")
+                     )->get();
+
+        $financial_elements = FinancialElement::when($has, fn ($q) =>
+                                   $q->where('name', 'like', "%{$term}%")
+                               )->get();
+
+        /* ------------------------------------------------------------
+         * 5.   Ответ
+         * ---------------------------------------------------------- */
+        return response()->json(compact(
+            'cards',
+            'subcards',
+            'units',
+            'providers',
+            'addresses',
+            'expenses',
+            'financial_elements'
+        ));
     }
 
     public function cashbox(): JsonResponse
@@ -63,78 +127,99 @@ class ReferenceController extends Controller
         return response()->json(compact('financial_element',));
     }
 
-        public function getReferencesByType(string $type): JsonResponse
-{
+    public function getReferencesByType(Request $request, string $type): JsonResponse
+    {
+        $term = trim($request->query('search', $request->query('q', '')));
+        $has  = $term !== '';
 
-    switch ($type) {
+        switch ($type) {
 
-        /* ───────────────────────── product cards ───────────────────── */
-        case 'productCard':
-            $data = ProductCard::with('subCards:id,product_card_id,name')
-                    ->orderBy('name_of_products')
-                    ->get()
-                    ->map(fn ($c) => [
-                        'id'          => $c->id,
-                        'name'        => $c->name_of_products,
-                        'description' => $c->description,
-                        'country'     => $c->country,
-                        'type'        => $c->type,
-                        'photo_url'   => $c->photo_product
-                                           ? Url::to('storage/' . $c->photo_product)
-                                           : null,
-                        'sub_cards'   => $c->subCards->map(fn ($s) => [
-                                            'id'   => $s->id,
-                                            'name' => $s->name,
-                                        ]),
-                    ]);
-            return response()->json($data);
+            /* ───────────── product cards ───────────── */
+            case 'productCard':
+                $cards = ProductCard::with('subCards:id,product_card_id,name')
+                          ->when($has, fn ($q) =>
+                              $q->where('name_of_products','like',"%{$term}%")
+                                ->orWhere('description','like',"%{$term}%")
+                          )
+                          ->orderBy('name_of_products')
+                          ->get()
+                          ->map(fn ($c) => [
+                              'id'          => $c->id,
+                              'name'        => $c->name_of_products,
+                              'description' => $c->description,
+                              'country'     => $c->country,
+                              'type'        => $c->type,
+                              'photo_url'   => $c->photo_product
+                                                 ? URL::to('storage/'.$c->photo_product)
+                                                 : null,
+                              // фильтруем sub-cards тоже, если был поисковый запрос
+                              'sub_cards'   => $c->subCards
+                                                 ->when($has, fn ($col) =>
+                                                     $col->where('name','like',"%{$term}%")
+                                                 )
+                                                 ->map(fn ($s) => [
+                                                     'id'   => $s->id,
+                                                     'name' => $s->name,
+                                                 ]),
+                          ]);
+                return response()->json($cards);
 
-        /* ───────────────────────── sub-cards ───────────────────────── */
-        case 'subproductCard':
-            return response()->json(
-                ProductSubCard::select('id','product_card_id','name')
+            /* ───────────── sub-cards ──────────────── */
+            case 'subproductCard':
+                $subs = ProductSubCard::select('id','product_card_id','name')
+                          ->when($has, fn ($q) =>
+                              $q->where('name','like',"%{$term}%")
+                          )
+                          ->orderBy('name')
+                          ->get();
+                return response()->json($subs);
+
+            /* ───────────── units ──────────────────── */
+            case 'unit':
+                $units = Unit_measurement::select('id','name','tare')
+                          ->when($has, fn ($q) =>
+                              $q->where('name','like',"%{$term}%")
+                          )
+                          ->orderBy('name')
+                          ->get();
+                return response()->json($units);
+
+            /* ───────────── providers ──────────────── */
+            case 'provider':
+                $providers = Provider::select('id','name')
+                              ->when($has, fn ($q) =>
+                                  $q->where('name','like',"%{$term}%")
+                              )
                               ->orderBy('name')
-                              ->get()
-            );
+                              ->get();
+                return response()->json($providers);
 
-        /* ───────────────────────── units ───────────────────────────── */
-        case 'unit':
-            return response()->json(
-                Unit_measurement::select('id','name','tare')
-                                ->orderBy('name')
-                                ->get()
-            );
+            /* ───────────── addresses ──────────────── */
+            case 'address':
+                $addresses = Address::select('id','name','city','street','house','additional')
+                             ->when($has, fn ($q) =>
+                                 $q->where('name','like',"%{$term}%")
+                             )
+                             ->orderBy('name')
+                             ->get();
+                return response()->json($addresses);
 
-        /* ───────────────────────── providers ───────────────────────── */
-        case 'provider':
-            return response()->json(
-                Provider::select('id','name')
-                        ->orderBy('name')
-                        ->get()
-            );
+            /* ───────────── expenses ──────────────── */
+            case 'expense':
+                $expenses = Expense::select('id','name','amount','provider_id','organization_id')
+                            ->with('provider:id,name')
+                            ->when($has, fn ($q) =>
+                                $q->where('name','like',"%{$term}%")
+                            )
+                            ->get();
+                return response()->json($expenses);
 
-        /* ───────────────────────── addresses ───────────────────────── */
-        case 'address':
-            return response()->json(
-                Address::select('id','name','city','street','house','additional')
-                       ->orderBy('name')
-                       ->get()
-            );
-
-        /* ───────────────────────── expenses ────────────────────────── */
-        case 'expense':
-            return response()->json(
-                Expense::select('id','name','amount','provider_id','organization_id')
-                       ->with('provider:id,name')   // если нужен провайдер
-                       ->get()
-            );
-
-        /* ───────────────────────── unknown type ────────────────────── */
-        default:
-            return response()
-                   ->json(['error' => "Unknown reference type '{$type}'"], 400);
+            /* ───────────── unknown ──────────────── */
+            default:
+                return response()
+                       ->json(['error' => "Unknown reference type '{$type}'"], 400);
+        }
     }
-}
     public function store(Request $request, $type)   // /reference/{type}
     {
         DB::beginTransaction();
@@ -777,7 +862,7 @@ public function destroyOne(Request $request, string $type, string $id): JsonResp
 
                         $orgId = $request->user()->organization_id;
 
-                        $validated = $request->validate([
+                        $validatedData = $request->validate([
                             'product_card_id' => [
                                 'required',
                                 'uuid',
@@ -792,12 +877,14 @@ public function destroyOne(Request $request, string $type, string $id): JsonResp
                                     ->where('organization_id', $orgId)
                                     ->ignore($id),
                             ],
+                            /*  добавляем числовые поля, если нужно их хранить  */
+                            'brutto' => ['nullable','numeric','min:0'],
+                            'netto'  => ['nullable','numeric','min:0'],
                         ], [
                             'name.unique' => 'Подкарточка с таким именем уже существует.',
                         ]);
-
-                        /*  ———— больше НЕ трогаем organization_id ———— */
                         break;
+
                     case 'provider':
                     $model = Provider::findOrFail($id);
                     $validatedData = $request->validate([
@@ -899,6 +986,50 @@ public function destroyOne(Request $request, string $type, string $id): JsonResp
 }
 
     // 2) Unified update method (PATCH)
+
+    // app/Http/Controllers/ReferenceController.php
+
+    public function counterparties(Request $request)
+    {
+        $onlyOwn = $request->query('scope') === 'own';       // ?scope=own
+        $orgId   = $request->user()->organization_id;
+
+        /* helper: добавляет where organization_id = $orgId когда нужно */
+        $scoped = function (string $table) use ($onlyOwn, $orgId) {
+            $q = DB::table($table);
+            return $onlyOwn ? $q->where("$table.organization_id", $orgId) : $q;
+        };
+
+        /* ---------- клиенты ------------------------------------------------ */
+        $clients = User::selectRaw("
+                        users.id,
+                        CONCAT(users.first_name,' ',users.last_name) AS name,
+                        'client' AS type
+                    ")
+                    ->join('role_user',  'role_user.user_id', '=', 'users.id')
+                    ->join('roles',      'roles.id',          '=', 'role_user.role_id')
+                    ->where('roles.name', 'client')
+                    ->when($onlyOwn, fn ($q) => $q->where('users.organization_id', $orgId));
+
+        /* ---------- поставщики --------------------------------------------- */
+        $providers = $scoped('providers')
+            ->selectRaw("providers.id, providers.name, 'provider' AS type");
+
+        /* ---------- организации -------------------------------------------- */
+        $orgs = $scoped('organizations')
+            ->selectRaw("organizations.id, organizations.name, 'organization' AS type");
+
+        /* ---------- один SQL-запрос с UNION ALL ---------------------------- */
+        $union = $clients
+                    ->unionAll($providers)
+                    ->unionAll($orgs);
+
+        return response()->json(
+            DB::query()->fromSub($union, 't')
+                       ->orderBy('name')
+                       ->get()
+        );
+    }
 
 
 }

@@ -20,7 +20,9 @@
        </div>
        <div class="form-group">
          <label>Фото товара</label>
-         <input type="file" @change="handleFileUpload" />
+         <input type="file" name="photo_product"
+         accept="image/*"
+         @change="handleFileUpload" />
        </div>
        <div class="form-actions">
          <button type="submit" class="submit-btn" :disabled="loading">
@@ -77,7 +79,7 @@
          formData.append("country", this.form.country);
          formData.append("type", this.form.type);
          if (this.photoFile) {
-           formData.append("photo", this.photoFile);
+            formData.append("photo_product", this.photoFile);
          }
          // Replace '/api/product_cards' with your API endpoint if needed.
          const response = await axios.post("/api/product_card_create", formData, {

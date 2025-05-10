@@ -162,7 +162,12 @@ public function getUserPriceOffers(Request $request)
         //    Eager-load the 'priceOffers' relationship,
         //    and also load each priceOffer's related 'productSubCard'
         $priceOfferOrders = PriceOfferOrder::where('client_id', $clientId)
-            ->with(['priceOffers.productSubCard'])
+            ->with([
+                'priceOffers.productSubCard',
+                'organization:id,name',                    // 👈 объект организации у заказа
+
+            ])
+
             ->get();
 
         // 3) Return JSON response

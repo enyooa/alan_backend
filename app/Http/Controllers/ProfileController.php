@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\JsonResponse;
 
 class ProfileController extends Controller
 {
@@ -54,33 +55,33 @@ class ProfileController extends Controller
     /**
      * Get User Profile Information
      */
-    public function getProfile()
+    public function getProfile(Request $request): JsonResponse
     {
-        try {
-            $user = Auth::user();
+        /** @var \App\Models\User $user */
+        $user = $request->user()->loadMissing([
+            'roles:id,name',
+            'permissions:id,code,name',
+            'organization:id,name',
+            'organization.plans.permissions:id,code,name',
+            'roles.permissions:id,code,name',
+        ]);
 
-            return response()->json([
-                'success' => true,
-                'user' => [
-                    'id'              => $user->id,
-                    'first_name'      => $user->first_name,
-                    'last_name'       => $user->last_name,
-                    'surname'         => $user->surname,
-                    'whatsapp_number' => $user->whatsapp_number,
-                    'summary'         => $user->summary,
-                    'address'         => $user->address,
-                    'photo'           => $user->photo ? asset('storage/' . $user->photo) : asset('images/default_user.png'),
-                ],
-            ], 200);
-        } catch (\Exception $e) {
-            \Log::error('Error fetching profile: ' . $e->getMessage());
+        return response()->json([
+            'id'              => $user->id,
+            'is_verified'     => !is_null($user->phone_verified_at),
+            'roles'           => $user->roles->pluck('name'),
+            'organization'    => $user->organization,
+            'first_name'      => $user->first_name,
+            'last_name'       => $user->last_name,
+            'surname'         => $user->surname,
+            'whatsapp_number' => $user->whatsapp_number,
+            'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch profile information.',
-            ], 500);
-        }
+            // ⟵ тот же массив объектов {id, code, name}, что выдаёт /login
+            'permissions'     => $user->allPermissions()->makeHidden('pivot'),
+        ], 200);
     }
+
 
     /**
      * Update User Profile

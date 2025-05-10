@@ -12,16 +12,16 @@
            </option>
          </select>
        </div>
- 
+
        <!-- Subcard Name Input -->
        <div class="form-group">
          <label>Название подкарточки</label>
          <input type="text" v-model="form.name" placeholder="Введите название подкарточки" required />
        </div>
- 
+
        <!-- Brutto Input -->
-       
- 
+
+
        <!-- Action Buttons -->
        <div class="form-actions">
          <button type="submit" class="submit-btn" :disabled="loading">
@@ -32,10 +32,10 @@
      </form>
    </div>
  </template>
- 
+
  <script>
  import axios from "axios";
- 
+
  export default {
    name: "ProductSubCardPage",
    data() {
@@ -43,7 +43,7 @@
        // Form data for subcard creation
        form: {
          name: "",
-         
+
        },
        // Selected parent product card ID
        selectedProductCardId: "",
@@ -56,23 +56,20 @@
      this.fetchProductCards();
    },
    methods: {
-     async fetchProductCards() {
-       try {
-         const token = localStorage.getItem("token");
-         if (!token) {
-           alert("Отсутствует токен. Войдите в систему.");
-           return;
-         }
-         // Fetch the list of product cards (adjust the endpoint as needed)
-         const response = await axios.get("/api/product_cards", {
-           headers: { Authorization: `Bearer ${token}` },
-         });
-         this.productCards = response.data;
-       } catch (error) {
-         console.error("Ошибка загрузки карточек товара:", error);
-         alert("Не удалось загрузить карточки товара.");
-       }
-     },
+    async fetchProductCards() {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    alert("Отсутствует токен. Войдите в систему.");
+    return;
+  }
+
+  const { data } = await axios.get(
+    "/api/references/productCard",        // ← правильный путь
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  this.productCards = data;
+}
+,
      async submitForm() {
        if (!this.selectedProductCardId) {
          alert("Выберите карточку товара.");
@@ -93,7 +90,7 @@
          const payload = {
            product_card_id: this.selectedProductCardId,
            name: this.form.name,
-           
+
          };
          const response = await axios.post("/api/product_subcards", payload, {
            headers: {
@@ -113,7 +110,7 @@
    },
  };
  </script>
- 
+
  <style scoped>
  .product-subcard-form {
    max-width: 500px;
@@ -172,4 +169,3 @@
    flex: 1;
  }
  </style>
- 

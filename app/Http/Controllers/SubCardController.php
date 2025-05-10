@@ -106,8 +106,7 @@ class SubCardController extends Controller
         $validated = $request->validate([
             'product_card_id' => 'nullable|uuid|exists:product_cards,id',
             'name'  => 'nullable|string',
-            'brutto'=> 'nullable|numeric',
-            'netto' => 'nullable|numeric',
+
         ]);
 
         $productSubCard->update($validated);

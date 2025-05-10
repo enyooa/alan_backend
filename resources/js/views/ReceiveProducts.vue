@@ -94,7 +94,7 @@
     name: "OperationsPage",
     components: {
       /* create */
-      SalePage, PriceOfferPage, InventoryPage,
+      SalePage,ClientSalePage, PriceOfferPage, InventoryPage,
       ProductReceivingPage, WriteOffPage, InventoryCheckPage,
       /* edit */
       EditIncomeModal, EditWriteOffModal, EditSaleModal,
@@ -107,6 +107,8 @@
         productOptions: [
           { label: "Выберите…", value: "" },
           { label: "Продажа", value: "sale" },
+          { label: "Продажа клиенту", value: "clientSale" },
+
           { label: "Ценовое предложение", value: "priceOffer" },
           { label: "Перемещение", value: "inventory" },
           { label: "Поступление товара", value: "productReceiving" },
@@ -115,6 +117,8 @@
         ],
         pageMap: {
           sale: "SalePage",
+        clientSale:      "ClientSalePage",
+
           priceOffer: "PriceOfferPage",
           inventory: "InventoryPage",
           productReceiving: "ProductReceivingPage",

@@ -54,31 +54,39 @@ class ClientController extends Controller
 
     public function getClientOrders()
 {
-    $user = Auth::user();                              // текущий клиент
+    $user = Auth::user();                            // текущий клиент
 
-    /* 1. находим UUID статуса «ожидание» один раз  */
-    $waitingStatusId = StatusDoc::where('name', 'ожидание')
-                        ->value('id');                 // вернёт null, если статуса нет
-
+    /* uuid статуса «ожидание» */
+    $waitingStatusId = StatusDoc::where('name', 'ожидание')->value('id');
     if (!$waitingStatusId) {
-        return response()->json([
+        return [
             'success' => false,
-            'error'   => 'Статус «ожидание» не найден в таблице status_docs',
-        ], 500);
+            'error'   => 'Статус «ожидание» не найден в status_docs',
+        ];
     }
 
-    /* 2. выбираем **только** заказы этого клиента и с нужным статусом  */
+    /* заказы клиента + статус + организация */
     $orders = Order::where('user_id', $user->id)
-        ->where('status_id', $waitingStatusId)        // ← фильтр по статусу
+        ->where('status_id', $waitingStatusId)
         ->with([
-            'status:id,name',                         // чтобы увидеть текст статуса
-            'orderItems.productSubCard.productCard',  // детали товаров
+            'statusDoc:id,name',                       // объект статуса
+            'organization:id,name',                    // 👈 объект организации у заказа
+            'orderItems.productSubCard.productCard',   // позиции и товары
         ])
         ->orderByDesc('created_at')
         ->get();
 
-    return response()->json($orders, 200);
+    /* словарь всех статусов */
+    $statuses = StatusDoc::pluck('name', 'id');       // { id: name }
+
+    /* обычный массив → Laravel сам сделает JSON */
+    return [
+        'success'  => true,
+        'orders'   => $orders,        // у каждого order есть .organization
+        'statuses' => $statuses,
+    ];
 }
+
 
     public function report_debs(Request $request): JsonResponse
     {

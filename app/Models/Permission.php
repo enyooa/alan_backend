@@ -23,7 +23,10 @@ class Permission extends Model
         static::creating(fn ($org) => $org->id ??= (string) Str::uuid());
     }
     public function users()
-    {
-        return $this->belongsToMany(User::class, 'permission_user');
-    }
+{
+    return $this->belongsToMany(
+        User::class,
+        'permission_user'
+    )->using(\App\Models\Pivot\PermissionUser::class);
+}
 }

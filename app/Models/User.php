@@ -150,10 +150,13 @@ class User extends Authenticatable
      * Relationship: Many courier documents for this user.
      */
 
-    public function permissions()
-{
-    return $this->belongsToMany(Permission::class, 'permission_user');
-}
+     public function permissions()
+     {
+         return $this->belongsToMany(
+             Permission::class,
+             'permission_user'
+         )->using(\App\Models\Pivot\PermissionUser::class);
+     }
 
 /* проверить наличие операции */
 public function hasPermission($code)
@@ -194,4 +197,84 @@ public function organization()  // <- will be eager-loaded in responses
     {
         return $this->belongsTo(Organization::class);
     }
+
+    /* ───── accessor: $user->all_permission_codes ───── */
+public function getAllPermissionCodesAttribute()
+{
+    // ① direct permissions
+    $direct = $this->permissions()->pluck('code');
+
+    // ② through plans of the user’s organization
+    $planCodes = $this->organization
+        ? $this->organization->plans()
+              ->with('permissions:code')       // eager-load
+              ->get()
+              ->pluck('permissions')
+              ->flatten()
+              ->pluck('code')
+        : collect();
+
+    return $direct->merge($planCodes)->unique()->values();
+}
+// User.php
+// app/Models/User.php
+public function allPermissionCodes(): array
+{
+    // 1) личные права пользователя
+    $codes = $this->permissions()->pluck('code');
+
+    // 2) права, полученные через роли
+    $codes = $codes->merge(
+        $this->roles
+             ->flatMap(function ($role) {          // для каждой роли…
+                 return $role->permissions
+                             ->pluck('code');      // …берём её codes
+             })
+    );
+
+    // 3) права активного плана организации (если она есть)
+    if ($this->organization) {
+        $codes = $codes->merge(
+            $this->organization->permissions->pluck('code')
+        );
+    }
+
+    // убираем дубликаты и возвращаем как обычный массив
+    return $codes->unique()->values()->all();
+}
+
+
+// app/Models/User.php
+// app/Models/User.php
+public function allPermissions()
+{
+    // 1) прямые
+    $direct = $this->permissions()
+        ->select('permissions.id', 'permissions.code', 'permissions.name')
+        ->get();
+
+    // 2) от ролей
+    $byRoles = $this->roles()
+        ->with(['permissions' => function ($q) {
+            $q->select('permissions.id', 'permissions.code', 'permissions.name');
+        }])
+        ->get()
+        ->pluck('permissions')
+        ->flatten(1);
+
+    // 3) от активного тарифа организации
+    $planPerms = collect();
+    if ($this->organization && $this->organization->activePlan()) {
+        $planPerms = $this->organization
+                          ->activePlan()
+                          ->permissions()
+                          ->select('permissions.id', 'permissions.code', 'permissions.name')
+                          ->get();
+    }
+
+    return $direct->merge($byRoles)->merge($planPerms)
+                  ->unique('id')->values();      // коллекция Permission
+}
+
+
 }

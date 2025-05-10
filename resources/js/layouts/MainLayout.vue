@@ -35,15 +35,17 @@
         panelSets: {
           /* 1) документы */
           docs: [
-            { label:'Приходный ордер',     icon:'pi-paperclip',     color:'#7EBF52', to:'/income-order' },
-            { label:'Расходный ордер',     icon:'pi-paperclip',     color:'#6CB8C6', to:'/outcome-order' },
+            { label:'Приходный ордер',     icon:'pi-paperclip',     color:'#7EBF52', to:'/incomes-order' },
+            { label:'Расходный ордер',     icon:'pi-paperclip',     color:'#6CB8C6', to:'/expenses-order' },
             { label:'Заявки',              icon:'pi-envelope',      color:'#F4AA1C', to:'/requests' },
             { label:'Накладная',           icon:'pi-file',          color:'#41C9BD', to:'/invoice' },
             { label:'Поступление',         icon:'pi-shopping-cart', color:'#4A26E2', to:'/receive' },
             { label:'Списание',            icon:'pi-shopping-cart', color:'#6D6DDE', to:'/write-off' },
             { label:'Ценовые предложения', icon:'pi-dollar',        color:'#00CCB1', to:'/price-offers' },
             { label:'Продажи',             icon:'pi-shopping-cart', color:'#D143F2', to:'/sales' },
-          ],
+            { label:'Продажи клиенту',     icon:'pi-shopping-cart', color:'#FF7A45', to:'/client-sales' },
+
+        ],
 
           /* 2) справочник */
           directory: [

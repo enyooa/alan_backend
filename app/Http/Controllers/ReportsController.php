@@ -2,20 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdminCashes;
 use App\Models\Document;
 use App\Models\DocumentItem;
 use App\Models\DocumentType;
 use App\Models\Expense;
+use App\Models\FinancialElement;
 use App\Models\FinancialOrder;
 use App\Models\ProductSubCard;
+use App\Models\Provider;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseItem;
 use Barryvdh\DomPDF\PDF;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
-
+use Illuminate\Support\Str;               // ← add this
+use Illuminate\Http\JsonResponse;
 class ReportsController extends Controller
 {
     public function index()
@@ -44,95 +49,171 @@ class ReportsController extends Controller
     /**
      * Отчет по складу (Warehouse)
      */
-    public function getStorageReport(Request $request)
+    /**
+ * /api/reports/storage
+ * ?date_from=2025-04-01&date_to=2025-04-30
+ * &warehouse=Основной&product=огурец
+ */
+public function getStorageReport(Request $request): JsonResponse
     {
-        // Получаем даты из запроса (пример: ?date_from=2025-01-01&date_to=2025-01-31)
-        $dateFrom = $request->input('date_from');
-        $dateTo   = $request->input('date_to');
+        /* ── 1. входные параметры ─────────────────────────────────── */
+        $from      = $request->input('date_from');
+        $to        = $request->input('date_to');
+        $warehouse = $request->input('warehouse');   // необязательный фильтр
+        $product   = $request->input('product');     // необязательный фильтр
 
-        // (Необязательно) Получаем ID-шники типов документов по коду,
-        // если где-то ещё потребуется.
-        $typeIncome   = DocumentType::where('code', 'income')->value('id');
-        $typeTransfer = DocumentType::where('code', 'transfer')->value('id');
-        $typeSale     = DocumentType::where('code', 'sale')->value('id');
-        $typeWriteOff = DocumentType::where('code', 'write_off')->value('id');
+        foreach (['from','to','warehouse','product'] as $v) {
+            if ($$v === 'null' || $$v === '') $$v = null;
+        }
 
-        // «Основной» отчёт: приход/расход/остаток по каждому складу и товару
-        $report = DB::table('warehouses AS wh')
-            ->join('warehouse_items AS wi', 'wi.warehouse_id', '=', 'wh.id')
-            ->join('product_sub_cards AS psc', 'psc.id', '=', 'wi.product_subcard_id')
-            // Документы (leftJoin)
-            ->leftJoin('documents AS d', function($join) {
-                $join->on('d.to_warehouse_id', '=', 'wh.id')
-                     ->orOn('d.from_warehouse_id', '=', 'wh.id');
+        if ($from) $from = Carbon::parse($from)->toDateString();   // YYYY-MM-DD
+        if ($to)   $to   = Carbon::parse($to)  ->toDateString();
+
+        $sqlFrom = $from ?: '1970-01-01';
+        $sqlTo   = $to   ?: now()->toDateString();
+
+        /* ── 2. выборка «склад + товар» с opening / inbound / outbound ─ */
+        $detail = DB::table('warehouses AS wh')
+            ->join     ('warehouse_items   AS wi',  'wi.warehouse_id',      '=', 'wh.id')
+            ->join     ('product_sub_cards AS psc', 'psc.id',               '=', 'wi.product_subcard_id')
+            ->leftJoin ('documents         AS d', function ($j) {
+                $j->on('d.to_warehouse_id',   '=', 'wh.id')
+                  ->orOn('d.from_warehouse_id','=', 'wh.id');
             })
-            ->leftJoin('document_types AS dt', 'dt.id', '=', 'd.document_type_id')
-            ->leftJoin('document_items AS di', function($join) {
-                $join->on('di.document_id', '=', 'd.id');
-                $join->on('di.product_subcard_id', '=', 'psc.id');
+            ->leftJoin ('document_types    AS dt', 'dt.id',                 '=', 'd.document_type_id')
+            ->leftJoin ('document_items    AS di', function ($j) {
+                $j->on('di.document_id',       '=', 'd.id')
+                  ->on('di.product_subcard_id','=', 'psc.id');
             })
+
+            /* фильтры склада / товара */
+            ->when($warehouse, function ($q) use ($warehouse) {
+                Str::isUuid($warehouse)
+                    ? $q->where('wh.id', $warehouse)
+                    : $q->whereRaw('LOWER(wh.name) LIKE ?', ['%'.mb_strtolower($warehouse).'%']);
+            })
+            ->when($product, function ($q) use ($product) {
+                Str::isUuid($product)
+                    ? $q->where('psc.id', $product)
+                    : $q->whereRaw('LOWER(psc.name) LIKE ?', ['%'.mb_strtolower($product).'%']);
+            })
+
             ->select(
-                'wh.id AS warehouse_id',
+                'wh.id   AS warehouse_id',
                 'wh.name AS warehouse_name',
-                'psc.id AS product_id',
+                'psc.id  AS product_id',
                 'psc.name AS product_name',
-                'wi.quantity AS current_quantity',    // Текущий остаток (warehouse_items)
-                'wi.cost_price AS current_cost_price',
+                'wi.cost_price',
 
-                // Приход
+                /* opening (остаток до периода) */
                 DB::raw("
-                    SUM(
-                        CASE
-                          WHEN (dt.code = 'income' AND d.to_warehouse_id = wh.id)
-                               OR (dt.code = 'transfer' AND d.to_warehouse_id = wh.id)
-                          THEN di.quantity
-                          ELSE 0
-                        END
-                    ) AS total_inbound
+                    COALESCE(SUM(
+                      CASE
+                        WHEN d.document_date < '{$sqlFrom}'
+                         AND (
+                              (dt.code IN ('income','transfer')  AND d.to_warehouse_id   = wh.id) OR
+                              (dt.code IN ('sale','write_off','transfer') AND d.from_warehouse_id = wh.id)
+                             )
+                        THEN di.quantity *
+                             CASE
+                               WHEN dt.code IN ('income','transfer') AND d.to_warehouse_id = wh.id
+                               THEN  1 ELSE -1 END
+                        ELSE 0 END
+                    ),0) AS opening
                 "),
-                // Расход
+                /* inbound (приход в периоде) */
                 DB::raw("
-                    SUM(
-                        CASE
-                          WHEN (dt.code = 'sale'       AND d.from_warehouse_id = wh.id)
-                               OR (dt.code = 'write_off' AND d.from_warehouse_id = wh.id)
-                               OR (dt.code = 'transfer'  AND d.from_warehouse_id = wh.id)
-                          THEN di.quantity
-                          ELSE 0
-                        END
-                    ) AS total_outbound
+                    COALESCE(SUM(
+                      CASE
+                        WHEN d.document_date BETWEEN '{$sqlFrom}' AND '{$sqlTo}'
+                         AND dt.code IN ('income','transfer')
+                         AND d.to_warehouse_id = wh.id
+                        THEN di.quantity ELSE 0 END
+                    ),0) AS total_inbound
+                "),
+                /* outbound (расход в периоде) */
+                DB::raw("
+                    COALESCE(SUM(
+                      CASE
+                        WHEN d.document_date BETWEEN '{$sqlFrom}' AND '{$sqlTo}'
+                         AND dt.code IN ('sale','write_off','transfer')
+                         AND d.from_warehouse_id = wh.id
+                        THEN di.quantity ELSE 0 END
+                    ),0) AS total_outbound
                 ")
             )
-            // Фильтруем документы по дате, если пользователь указал date_from и date_to
-            ->when($dateFrom && $dateTo, function($query) use ($dateFrom, $dateTo) {
-                return $query->whereBetween('d.document_date', [$dateFrom, $dateTo]);
-            })
-            ->groupBy('wh.id', 'psc.id', 'wi.quantity', 'wi.cost_price', 'wh.name', 'psc.name')
+            ->groupBy(
+                'wh.id','wh.name',
+                'psc.id','psc.name',
+                'wi.cost_price'
+            )
             ->orderBy('wh.id')
             ->orderBy('psc.id')
             ->get();
 
-        // Превращаем результат в коллекцию, пересчитываем остаток/сумму остатка
-        $report->transform(function ($row) {
-            $inbound       = $row->total_inbound ?? 0;
-            $outbound      = $row->total_outbound ?? 0;
-            // Либо берем "current_quantity", либо считаем "inbound - outbound":
-            $currentStock  = $inbound - $outbound;
-            $costPrice     = $row->current_cost_price ?? 0;
-            $value         = $currentStock * $costPrice;
+        /* ── 3. рассчитываем closing и стоимость, добавляем opening ── */
+        $detail->transform(function ($r) {
+            $opening         = (float) $r->opening;
+            $closing         = $opening + $r->total_inbound - $r->total_outbound;
+            $remainderValue  = round($closing * $r->cost_price, 2);
 
-            // Добавим поля remainder и remainder_value,
-            // чтобы на фронте их легко вывести
-            $row->remainder        = $currentStock;
-            $row->cost_price       = $costPrice;
-            $row->remainder_value  = $value;
+            return (object) [
+                'warehouse_id'     => $r->warehouse_id,
+                'warehouse_name'   => $r->warehouse_name,
+                'product_id'       => $r->product_id,
+                'product_name'     => $r->product_name,
 
-            return $row;
+                'opening'          => $opening,                // ← начальный остаток
+                'total_inbound'    => (float) $r->total_inbound,
+                'total_outbound'   => (float) $r->total_outbound,
+                'remainder'        => (float) $closing,        // конечный остаток
+                'cost_price'       => (float) $r->cost_price,
+                'remainder_value'  => $remainderValue,
+            ];
         });
 
-        // !!! Важно: возвращаем JSON-массив, чтобы Vue могла его прочитать !!!
-        return response()->json($report);
+        /* ── 4. группировка по складам ─────────────────────────────── */
+        $rows = $detail
+            ->groupBy('warehouse_id')
+            ->map(function ($items) {
+
+                $first = $items->first();
+
+                return [
+                    'warehouse_id'     => $first->warehouse_id,
+                    'warehouse_name'   => $first->warehouse_name,
+
+                    'opening'          => $items->sum('opening'),      // новый агрегат
+                    'total_inbound'    => $items->sum('total_inbound'),
+                    'total_outbound'   => $items->sum('total_outbound'),
+                    'remainder'        => $items->sum('remainder'),
+                    'remainder_value'  => $items->sum('remainder_value'),
+
+                    'products' => $items->map(function ($r) {
+                        return [
+                            'product_id'       => $r->product_id,
+                            'product_name'     => $r->product_name,
+
+                            'opening'          => $r->opening,
+                            'total_inbound'    => $r->total_inbound,
+                            'total_outbound'   => $r->total_outbound,
+                            'remainder'        => $r->remainder,
+                            'cost_price'       => $r->cost_price,
+                            'remainder_value'  => $r->remainder_value,
+                        ];
+                    })->values(),
+                ];
+            })
+            ->values();
+
+        /* ── 5. ответ ──────────────────────────────────────────────── */
+        return response()->json([
+            'date_from' => $from,
+            'date_to'   => $to,
+            'rows'      => $rows,
+        ], 200);
     }
+
     /**
      * Отчет по долгам (Debts)
      */
@@ -255,308 +336,325 @@ class ReportsController extends Controller
     //     return response()->json($results);
     // }
 
-    public function debtsReport(Request $request)
+
+    public function debtsReport(Request $request): JsonResponse
 {
-    $dateFrom = $request->input('date_from');
-    $dateTo   = $request->input('date_to');
+    /* ───── 1. normalise inputs ───── */
+    $from = $request->query('date_from');
+    $to   = $request->query('date_to');
+    $cli  = $request->query('client');
+    $flow = $request->query('flow', 'all');          // all | income | expense
 
-    $finalRows = [];
-
-    // --------------------------------------------------
-    // PART A: INCOME DOCS for each provider
-    // plus OUTGOING from financial_orders.type='expense'
-    // --------------------------------------------------
-    // 1) Query documents with docType->code='income'
-    $incomeDocsQuery = Document::whereHas('documentType', function($q) {
-            $q->where('code', 'income');
-        })
-        ->with('provider', 'documentItems');
-        // we remove ->expenses here since we’ll get “expense” from financial_orders
-
-    // If date range
-    if ($dateFrom && $dateTo) {
-        $incomeDocsQuery->whereBetween('document_date', [$dateFrom, $dateTo]);
+    foreach (['from','to','cli','flow'] as $v) {
+        if ($$v === '' || $$v === 'null') $$v = null;
     }
-    $incomeDocs = $incomeDocsQuery->get();
+    if (!in_array($flow, ['income','expense','all'], true)) {
+        $flow = 'all';
+    }
 
-    // Group by provider_id
-    $grouped = $incomeDocs->groupBy('provider_id');
+    $from = $from ? Carbon::parse($from)->startOfDay() : Carbon::parse('1970-01-01');
+    $to   = $to   ? Carbon::parse($to  )->endOfDay()   : now()->endOfDay();
 
-    // 2) Add a top-level "group" row to label this section
-    $finalRows[] = [
-        'row_type' => 'group',
-        'label'    => 'Документы приход + Расход ',//(financial_orders.type=expense)
-        'name'     => null,
-        'incoming' => null,
-        'outgoing' => null,
-        'balance'  => null,
-    ];
+    /* ───── 2. load client list (role=client) ───── */
+    $clients = User::query()
+        ->when($cli, function($q) use($cli) {
+            if (Str::isUuid($cli)) {
+                $q->where('id', $cli);
+            } else {
+                $q->whereRaw(
+                    "LOWER(CONCAT_WS(' ', first_name, last_name, surname)) LIKE ?",
+                    ['%'.mb_strtolower($cli).'%']
+                );
+            }
+        })
+        ->whereHas('roles', fn($r)=>$r->where('name','client'))
+        ->select('id','first_name','last_name','surname')
+        ->get();
 
-    foreach ($grouped as $providerId => $docs) {
-        // Provider name
-        $providerName = $docs->first()->provider
-            ? $docs->first()->provider->name
-            : "Без поставщика";
+    if ($clients->isEmpty()) {
+        return response()->json([
+            'date_from' => $from->toDateString(),
+            'date_to'   => $to->toDateString(),
+            'flow'      => $flow ?? 'all',
+            'rows'      => [],
+        ], 200);
+    }
 
-        // Sum the "incoming" = sum of docItems for these docs
-        $providerIncoming = 0;
-        foreach ($docs as $doc) {
-            $providerIncoming += $doc->documentItems->sum('total_sum');
-        }
+    $clientIds = $clients->pluck('id');
 
-        // Now sum "expense" from financial_orders for this provider
-        // (Optionally filter by date_of_check if date range is set)
-        $expenseQuery = FinancialOrder::where('provider_id', $providerId)
-            ->where('type', 'expense');
-        if ($dateFrom && $dateTo) {
-            $expenseQuery->whereBetween('date_of_check', [$dateFrom, $dateTo]);
-        }
-        $providerExpense = (float) $expenseQuery->sum('summary_cash');
+    /* ───── 3. opening balance (до $from) ───── */
+    $incomeBefore = FinancialOrder::where('type','income')
+        ->whereIn('user_id',$clientIds)
+        ->whereDate('date_of_check','<',$from)
+        ->groupBy('user_id')
+        ->selectRaw('user_id, SUM(summary_cash) as sum')
+        ->pluck('sum','user_id');                         // [user_id=>sum]
 
-        // The "provider" row
-        $finalRows[] = [
-            'row_type' => 'provider',
-            'name'     => $providerName,
-            'incoming' => $providerIncoming,
-            'outgoing' => $providerExpense,
-            'balance'  => $providerIncoming - $providerExpense,
+    $salesBefore  = DB::table('documents AS d')
+        ->join('document_types AS dt','dt.id','=','d.document_type_id')
+        ->join('document_items AS di','di.document_id','=','d.id')
+        ->where('dt.code','sale')
+        ->whereIn('d.client_id',$clientIds)
+        ->whereDate('d.document_date','<',$from)
+        ->groupBy('d.client_id')
+        ->selectRaw('d.client_id, SUM(di.total_sum) AS sum')
+        ->pluck('sum','client_id');                       // [client_id=>sum]
+
+    /* ───── 4. flows inside period ───── */
+    $incomeNow = FinancialOrder::where('type','income')
+        ->whereIn('user_id',$clientIds)
+        ->whereBetween('date_of_check',[$from,$to])
+        ->groupBy('user_id')
+        ->selectRaw('user_id, SUM(summary_cash) as sum')
+        ->pluck('sum','user_id');                         // [user_id=>sum]
+
+    $salesNow  = DB::table('documents AS d')
+        ->join('document_types AS dt','dt.id','=','d.document_type_id')
+        ->join('document_items AS di','di.document_id','=','d.id')
+        ->where('dt.code','sale')
+        ->whereIn('d.client_id',$clientIds)
+        ->whereBetween('d.document_date',[$from,$to])
+        ->groupBy('d.client_id')
+        ->selectRaw('d.client_id, SUM(di.total_sum) AS sum')
+        ->pluck('sum','client_id');                       // [client_id=>sum]
+
+    /* ───── 5. build rows ───── */
+    $rows = $clients->map(function($c) use ($incomeBefore,$salesBefore,$incomeNow,$salesNow,$flow) {
+
+        $opening  = ($incomeBefore[$c->id] ?? 0) - ($salesBefore[$c->id] ?? 0);
+
+        $incoming = $incomeNow[$c->id] ?? 0;   // платежи клиента
+        $outgoing = $salesNow [$c->id] ?? 0;   // отгружено товара
+
+        /* apply flow filter */
+        $inc = ($flow === 'expense') ? 0 : $incoming;
+        $out = ($flow === 'income' ) ? 0 : $outgoing;
+
+        return [
+            'client' => [
+                'id'   => $c->id,
+                'name' => trim("{$c->first_name} {$c->last_name} {$c->surname}") ?: '—',
+            ],
+            'opening'  => round($opening ,2),
+            'incoming' => round($inc     ,2),
+            'outgoing' => round($out     ,2),
+            'closing'  => round($opening + $inc - $out ,2),
         ];
+    })->values();
 
-        // Then each doc row
-        foreach ($docs as $doc) {
-            $docTotal = $doc->documentItems->sum('total_sum');
-            $finalRows[] = [
-                'row_type' => 'doc',
-                'name'     => "Документ #{$doc->id} ({$doc->document_date})",
-                'incoming' => $docTotal,
-                'outgoing' => 0,
-                'balance'  => $docTotal // or 0
+    return response()->json([
+        'date_from' => $from->toDateString(),
+        'date_to'   => $to  ->toDateString(),
+        'flow'      => $flow ?? 'all',
+        'rows'      => $rows,
+    ], 200);
+}
+    /**
+     * Отчет по продажам (Sales)
+     */
+
+     public function getSalesReport(Request $request): JsonResponse
+{
+    /* ───── 1. «Нормализуем» вход ───── */
+    $from  = $request->input('date_from');
+    $to    = $request->input('date_to');
+    $buyer = $request->input('client');
+    $prod  = $request->input('product');
+
+    // превращаем 'null' или '' в null
+    foreach (['from','to','buyer','prod'] as $v) {
+        if ($$v === 'null' || $$v === '') {
+            $$v = null;
+        }
+    }
+
+    /* ───── 2. Загружаем только документы-sale ───── */
+    $docs = Document::whereHas('documentType', function ($q) {
+                $q->where('code', 'sale');
+            })
+            ->with([
+                'client:id,first_name,last_name,surname',
+                'documentItems.product:id,name'
+            ])
+
+            // даты
+            ->when($from && $to, function ($q) use ($from, $to) {
+                $q->whereBetween('document_date', [$from, $to]);
+            })
+            ->when($from && !$to, function ($q) use ($from) {
+                $q->whereDate('document_date', '>=', $from);
+            })
+            ->when(!$from && $to, function ($q) use ($to) {
+                $q->whereDate('document_date', '<=', $to);
+            })
+
+            // клиент
+            ->when($buyer, function ($q) use ($buyer) {
+                $q->whereHas('client', function ($s) use ($buyer) {
+                    Str::isUuid($buyer)
+                        ? $s->where('id', $buyer)
+                        : $s->whereRaw(
+                            "LOWER(CONCAT_WS(' ', first_name, last_name, surname)) LIKE ?",
+                            ['%'.mb_strtolower($buyer).'%']
+                          );
+                });
+            })
+
+            // товар
+            ->when($prod, function ($q) use ($prod) {
+                $q->whereHas('documentItems.product', function ($s) use ($prod) {
+                    Str::isUuid($prod)
+                        ? $s->where('id', $prod)
+                        : $s->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower($prod).'%']);
+                });
+            })
+            ->get();
+
+    /* ───── 3. Формируем строки отчёта ───── */
+    $rows = [];
+
+    foreach ($docs as $doc) {
+        $warehouseId = $doc->from_warehouse_id;        // склад списания
+
+        foreach ($doc->documentItems as $item) {
+
+            /* суммы продажи */
+            $qty      = (float) $item->quantity;
+            $saleAmt  = $item->price * $qty;
+
+            /* себестоимость */
+            $costPrice = 0;
+            if ($warehouseId) {
+                $wi = WarehouseItem::where('warehouse_id', $warehouseId)
+                    ->where('product_subcard_id', $item->product_subcard_id)
+                    ->first();
+                $costPrice = $wi ? (float) $wi->cost_price : 0;
+            }
+            $costAmt = $costPrice * $qty;
+
+            /* клиент */
+            $cl   = $doc->client;                                // может быть null
+            $name = trim(
+                        ($cl->first_name ?? '').' '.
+                        ($cl->last_name  ?? '').' '.
+                        ($cl->surname    ?? '')
+                    ) ?: '—';
+
+            /* строка */
+            $rows[] = [
+                'client' => [
+                    'id'   => $cl->id   ?? null,
+                    'name' => $name,
+                ],
+                'product' => [
+                    'id'   => $item->product->id   ?? null,
+                    'name' => $item->product->name ?? '—',
+                ],
+                'document_date' => Carbon::parse($doc->document_date)->toDateString(),
+                'quantity'      => $qty,
+                'sale_amount'   => round($saleAmt , 2),
+                'cost_amount'   => round($costAmt , 2),
+                'profit'        => round($saleAmt - $costAmt, 2),
             ];
         }
     }
 
-    // --------------------------------------------------
-    // PART B: CLIENT DEBTS (unchanged)
-    // --------------------------------------------------
-    // Add "group" label row
-    $finalRows[] = [
-        'row_type' => 'group',
-        'label'    => 'Отчет по долгам (client)',
-        'name'     => null,
-        'incoming' => null,
-        'outgoing' => null,
-        'balance'  => null,
-    ];
-
-    // Your existing subquery logic for clients
-    $clientIds = DB::table('role_user AS ru')
-        ->join('roles AS r', 'r.id', '=', 'ru.role_id')
-        ->join('users AS u', 'u.id', '=', 'ru.user_id')
-        ->where('r.name', 'client')
-        ->pluck('u.id')
-        ->toArray();
-
-    $subIncomingFilter = '';
-    $subOutgoingFilter = '';
-    if ($dateFrom && $dateTo) {
-        $subIncomingFilter = " AND fo.date_of_check BETWEEN '{$dateFrom}' AND '{$dateTo}' ";
-        $subOutgoingFilter = " AND d.document_date BETWEEN '{$dateFrom}' AND '{$dateTo}' ";
-    }
-
-    $debtsData = DB::table('users AS c')
-        ->select(
-            'c.id AS client_id',
-            DB::raw("CONCAT(c.first_name, ' ', c.last_name) AS client_name"),
-            DB::raw("
-                COALESCE((
-                    SELECT SUM(fo.summary_cash)
-                    FROM financial_orders fo
-                    WHERE fo.user_id = c.id
-                    $subIncomingFilter
-                ), 0) AS total_incoming
-            "),
-            DB::raw("
-                COALESCE((
-                    SELECT SUM(di.total_sum)
-                    FROM documents d
-                    JOIN document_types dt ON dt.id = d.document_type_id
-                    JOIN document_items di ON di.document_id = d.id
-                    WHERE d.client_id = c.id
-                      AND dt.code = 'sale'
-                    $subOutgoingFilter
-                ), 0) AS total_outgoing
-            ")
-        )
-        ->whereIn('c.id', $clientIds)
-        ->orderBy('c.id')
-        ->get();
-
-    $debtsData->transform(function ($row) {
-        $incoming = (float) $row->total_incoming;
-        $outgoing = (float) $row->total_outgoing;
-        $row->balance = $incoming - $outgoing;
-        return $row;
-    });
-
-    // Add row_type='client' for each client debt
-    foreach ($debtsData as $cd) {
-        $finalRows[] = [
-            'row_type' => 'client',
-            'name'     => $cd->client_name,
-            'incoming' => (float)$cd->total_incoming,
-            'outgoing' => (float)$cd->total_outgoing,
-            'balance'  => (float)$cd->balance,
-        ];
-    }
-
-    return response()->json($finalRows);
+    return response()->json($rows, 200);
 }
 
 
-    /**
-     * Отчет по продажам (Sales)
-     */
-    public function getSalesReport(Request $request)
-    {
-        $dateFrom = $request->input('start_date');
-        $dateTo   = $request->input('end_date');
 
-        // 1) Query only documents of type 'sale' (assuming docType code='sale').
-        $query = Document::whereHas('documentType', function($q) {
-            $q->where('code', 'sale');
-        })->with('documentItems.product');
+     public function cash_report(Request $request)
+{
+    /* ───── 1. нормализация входа ───── */
+    $from = self::normalizeDate($request->input('date_from'));
+    $to   = self::normalizeDate($request->input('date_to'));
+    $cbx  = self::normalizeText($request->input('cashbox'));   // касса
+    $elt  = self::normalizeText($request->input('element'));   // статья
 
-        // 2) Filter by date range if provided
-        if ($dateFrom && $dateTo) {
-            $query->whereBetween('document_date', [$dateFrom, $dateTo]);
-        }
+    /* ───── 2. выборка ордеров ───── */
+    $orders = FinancialOrder::with(['adminCash:id,name','financialElement:id,name'])
+        ->when($from, fn($q)=>$q->whereDate('date_of_check','>=',$from))
+        ->when($to  , fn($q)=>$q->whereDate('date_of_check','<=',$to  ))
+        ->when($cbx , fn($q)=>$q->whereHas('adminCash',        fn($s)=>self::filterName($s,$cbx)))
+        ->when($elt , fn($q)=>$q->whereHas('financialElement', fn($s)=>self::filterName($s,$elt)))
+        ->get();
 
-        // 3) Get all sale documents (with items)
-        $documents = $query->get();
-
-        $reportRows = [];
-
-        // 4) For each DocumentItem, find cost_price from warehouse_items
-        foreach ($documents as $doc) {
-            // The warehouse from which items left
-            $warehouseId = $doc->from_warehouse_id;
-
-            foreach ($doc->documentItems as $item) {
-                $quantity = $item->quantity;
-                $netto    = $item->netto; // if you want to base saleAmount on nett weight
-
-                // (A) saleAmount: For example, price * netto (or price * quantity, or item->total_sum)
-                $saleAmount = $item->price * $netto;
-
-                // (B) Find matching WarehouseItem to get cost_price
-                //     (Adjust logic if you also track unit_measurement, etc.)
-                $warehouseItem = null;
-                if ($warehouseId) {
-                    $warehouseItem = WarehouseItem::where('warehouse_id', $warehouseId)
-                        ->where('product_subcard_id', $item->product_subcard_id)
-                        // ->where('unit_measurement', $item->unit_measurement) // if needed
-                        ->first();
-                }
-
-                // If not found, fallback cost_price = 0
-                $costPricePerUnit = $warehouseItem ? ($warehouseItem->cost_price ?? 0) : 0;
-
-                // If your cost_price is per *1 piece*, multiply by $quantity
-                // If your cost_price is per *1 kg*, multiply by $netto (if that's the net weight in kg)
-                // Decide which is correct in your scenario:
-                $costAmount = $costPricePerUnit * $quantity;
-                // or, if cost_price was per kg, do:
-                // $costAmount = $costPricePerUnit * $netto;
-
-                // (C) Compute profit
-                $profit = $saleAmount - $costAmount;
-
-                // (D) Build row
-                $productName = $item->product ? $item->product->name : 'Unknown';
-                // If your 'document_date' is cast to Date or a Carbon, you can format it. Otherwise:
-                $docDate = $doc->document_date; // or strval($doc->document_date);
-
-                $reportRows[] = [
-                    'product_name' => $productName,
-                    'quantity'     => $quantity,
-                    'sale_amount'  => $saleAmount,
-                    'cost_amount'  => $costAmount,
-                    'profit'       => $profit,
-                    'document_date'=> $docDate,  // if you want the date in the report
-                ];
-            }
-        }
-
-        // 5) Return JSON
-        return response()->json($reportRows);
-    }
-
-    public function cash_report(Request $request)
-    {
-        /* ---------- подбираем заказы с учётом фильтров ---------- */
-        $orders = FinancialOrder::with([
-                'adminCash:id,name',
-                'financialElement:id,name'
-            ])
-
-            // даты
-            ->when($request->filled(['date_from', 'date_to']),
-                fn($q) => $q->whereBetween('date_of_check', [
-                    $request->date_from, $request->date_to
-                ])
-            )
-
-            // касса
-            ->when($request->filled('cashbox'),
-                fn($q) => $q->whereHas('adminCash', fn($s) =>
-                        $s->where('name', 'like', "%{$request->cashbox}%"))
-            )
-
-            // статья
-            ->when($request->filled('element'),
-                fn($q) => $q->whereHas('financialElement', fn($s) =>
-                        $s->where('name', 'like', "%{$request->element}%"))
-            )
+    /* ───── 3. «начальный остаток» ───── */
+    $prevBalances = [];
+    if ($from) {
+        $before = FinancialOrder::with('adminCash:id,name')
+            ->when($cbx , fn($q)=>$q->whereHas('adminCash',        fn($s)=>self::filterName($s,$cbx)))
+            ->when($elt , fn($q)=>$q->whereHas('financialElement', fn($s)=>self::filterName($s,$elt)))
+            ->whereDate('date_of_check','<',$from)
             ->get();
 
-        /* ---------- агрегируем: КАССА ➜ СТАТЬЯ ---------- */
-        $result = $orders
-            ->groupBy(fn($o) => $o->adminCash->name ?? '—')          // ← 1‑й уровень
-            ->map(function ($cashGroup, $cashName) {
-
-                // ——— агрегаты кассы
-                $income  = $cashGroup->where('type', 'income') ->sum('summary_cash');
-                $expense = $cashGroup->where('type', 'expense')->sum('summary_cash');
-                $balance = round($income - $expense, 3);
-
-                // ——— статьи внутри кассы
-                $elements = $cashGroup
-                    ->groupBy(fn($o) => $o->financialElement->name ?? '—') // 2‑й уровень
-                    ->map(function ($elGroup, $elName) {
-                        $inc = $elGroup->where('type','income') ->sum('summary_cash');
-                        $exp = $elGroup->where('type','expense')->sum('summary_cash');
-
-                        return [
-                            'element' => $elName,
-                            'income'  => round($inc , 3),
-                            'expense' => round($exp , 3),
-                        ];
-                    })
-                    ->values();   // убираем ключи‑названия
-
-                return [
-                    'cashbox' => $cashName,
-                    'start'   => $balance,           // вы указали «начальный = приход−расход»
-                    'income'  => round($income , 3),
-                    'expense' => round($expense, 3),
-                    'end'     => $balance,           // то же значение
-                    'elements'=> $elements           // <—— список строк‑деталей
-                ];
-            })
-            ->values();   // превращаем в массив
-
-        return response()->json($result, 200);
+        $prevBalances = $before->groupBy('admin_cash_id')->map(function($g){
+            return round(
+                $g->where('type','income' )->sum('summary_cash')
+              - $g->where('type','expense')->sum('summary_cash')
+            ,3);
+        })->toArray();
     }
+
+    /* ───── 4. агрегируем отчёт ───── */
+    $report = $orders->groupBy('admin_cash_id')->map(function($grp,$cid) use ($prevBalances){
+        $cash    = $grp->first()->adminCash;
+        $income  = $grp->where('type','income' )->sum('summary_cash');
+        $expense = $grp->where('type','expense')->sum('summary_cash');
+        $start   = $prevBalances[$cid] ?? 0;
+        $end     = round($start + $income - $expense,3);
+
+        $elements = $grp->groupBy('financial_element_id')->map(function($eg){
+            $el = $eg->first()->financialElement;
+            return [
+                'id'      => $el->id   ?? null,
+                'element' => $el->name ?? '—',
+                'income'  => round($eg->where('type','income' )->sum('summary_cash'),3),
+                'expense' => round($eg->where('type','expense')->sum('summary_cash'),3),
+            ];
+        })->values();
+
+        return [
+            'cashbox' => [
+                'id'   => $cash->id   ?? null,
+                'name' => $cash->name ?? '—',
+            ],
+            'start'    => $start,
+            'income'   => round($income ,3),
+            'expense'  => round($expense,3),
+            'end'      => $end,
+            'elements' => $elements,
+        ];
+    })->values();
+
+    return response()->json($report,200);
+}
+
+/* ───────────────── помощники ───────────────── */
+
+private static function normalizeDate($val)
+{
+    return ($val === 'null' || $val === '' || $val === null)
+         ? null
+         : Carbon::parse($val)->toDateString();   // YYYY-MM-DD
+}
+
+private static function normalizeText($val)
+{
+    if ($val === 'null' || $val === null) return null;
+
+    // убираем кавычки и пробелы
+    $clean = trim($val, " \t\n\r\0\x0B\"'“”«»");
+    return $clean === '' ? null : $clean;
+}
+
+private static function filterName($q, string $needle)
+{
+    return Str::isUuid($needle)
+        ? $q->where('id',$needle)
+        : $q->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower($needle).'%']);
+}
 
     public function exportPdf(Request $request)
     {

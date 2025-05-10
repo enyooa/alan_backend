@@ -4,7 +4,7 @@
      <form @submit.prevent="save">
        <div class="form-group">
          <label for="product_card_id">ID карточки товара:</label>
-         <input type="number" v-model="form.product_card_id" id="product_card_id" />
+         <input type="text" v-model="form.product_card_id" id="product_card_id" />
        </div>
        <div class="form-group">
          <label for="name">Название подкарточки:</label>
@@ -25,7 +25,7 @@
      </form>
    </div>
  </template>
- 
+
  <script>
  import axios from "axios";
  export default {
@@ -77,7 +77,7 @@
    },
  };
  </script>
- 
+
  <style scoped>
  .edit-form {
    padding: 20px;
@@ -99,4 +99,3 @@
    gap: 10px;
  }
  </style>
- 

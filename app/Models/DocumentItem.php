@@ -43,8 +43,12 @@ class DocumentItem extends Model
 
     // ссылка на товар (если есть модель Item)
 
-    public function unit()      { return $this->belongsTo(Unit_measurement::class, 'unit_measurement_id'); }
-
+    public function unit()
+    {
+        return $this->belongsTo(Unit_measurement::class,
+                                'unit_measurement',   // FK в document_items
+                                'name');              // колонка в unit_measurements
+    }
     public function product()
     {
         return $this->belongsTo(ProductSubCard::class,
@@ -52,6 +56,13 @@ class DocumentItem extends Model
                     ->select('id','name','product_card_id');
     }
     public function unitByName()
+    {
+        return $this->belongsTo(Unit_measurement::class,
+                                'unit_measurement',    // local key
+                                'name',                // owner key
+                                'unit');               // relation name
+    }
+    public function unit_measurements()
     {
         return $this->belongsTo(Unit_measurement::class,
                                 'unit_measurement',    // local key

@@ -25,7 +25,7 @@ class FinancialElementController extends Controller
         $roleIds = Auth::user()->roles->pluck('id');
 
         return FinancialElement::where('type', $type)
-               ->whereIn('role_id', $roleIds)
+            //    ->whereIn('role_id', $roleIds)
                ->get();
     }
 
@@ -362,7 +362,7 @@ public function updateFinancialOrder(Request $request, int $id)
         // store user_id or provider_id
         $financialOrder->user_id = $userId;
         $financialOrder->provider_id = $providerId;
-
+        $financialOrder->organization_id = $request->user()->organization_id;
         // handle optional fields (photo, product_subcard_id, etc.)
         // $financialOrder->photo_of_check = ...
         // $financialOrder->product_subcard_id = $request->product_subcard_id;

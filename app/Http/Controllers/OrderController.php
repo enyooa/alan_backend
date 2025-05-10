@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Document;
 use App\Models\DocumentItem;
+use App\Models\DocumentType;
 use App\Models\Order;
 
 use App\Models\StatusDoc;
@@ -11,6 +12,7 @@ use App\Models\Warehouse;
 use App\Models\WarehouseItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
@@ -29,79 +31,70 @@ class OrderController extends Controller
     }
 
     public function getPackerOrders()
-{
-    try {
-        /* 1. Организация текущего пользователя */
+    {
+        /* 1. Организация текущего юзера */
         $orgId = Auth::user()->organization_id;
 
-        /* 2. Берём UUID статуса «на фасовке» */
-        $packingStatusId = StatusDoc::where('name', 'на фасовке')->value('id');
+        /* 2. Какие статусы показываем */
+        $statuses = StatusDoc::pluck('name', 'id');   // id => name
 
-        if (!$packingStatusId) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'Статус «на фасовке» не найден в таблице status_docs',
-            ], 500);
-        }
-
-        /* 3. Заказы этой организации со статусом «на фасовке» */
+        /* 3. Заказы по этим статусам */
         $orders = Order::with([
                         'orderProducts.productSubCard.productCard',
                         'packer:id,first_name,last_name,photo',
                         'courier:id,first_name,last_name,photo',
                         'client:id,first_name,last_name',
-                        'statusDoc:id,name',                 // связь Order → StatusDoc
+                        'statusDoc:id,name',
                     ])
                     ->where('organization_id', $orgId)
-                    ->where('status_id', $packingStatusId)
+                    ->whereIn('status_id', $statuses->keys())
                     ->orderByDesc('created_at')
                     ->get();
 
-        return response()->json([
-            'success' => true,
-            'orders'  => $orders,
-            'status'  => StatusDoc::all(),     // если нужно вернуть весь справочник
-        ]);
-
-    } catch (\Throwable $e) {
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 500);
+        /* 4. Просто вернём массив — Laravel сам сделает JSON */
+        return [
+            'success'  => true,
+            'orders'   => $orders,        // можно $orders->toArray() если нужен чистый массив
+            'statuses' => $statuses,
+        ];
     }
-}
 
-public function getPackerHistory()
-{
-    try {
-        /* текущая организация */
-        $orgId = auth()->user()->organization_id;
 
-        /* id статуса «на фасовке» */
-        $packingStatusId = StatusDoc::where('name', 'на фасовке')->value('id');
+    public function getPackerHistory()
+    {
+        try {
+            /* 1. организация текущего пользователя */
+            $orgId = Auth::user()->organization_id;
 
-        $orders = Order::with([
-                    'orderProducts.productSubCard.productCard',
-                    'packer:id,first_name,last_name,photo',
-                    'courier:id,first_name,last_name,photo',
-                    'client:id,first_name,last_name',
-                ])
-                ->where('organization_id', $orgId)   // ← только наши заказы
-                ->where('status_id', $packingStatusId) // ← статус «на фасовке»
-                ->get();
+            /* 2. ВСЕ заказы этой организации – без фильтра по статусу */
+            $orders = Order::with([
+                            'orderProducts.productSubCard.productCard',
+                            'packer:id,first_name,last_name,photo',
+                            'courier:id,first_name,last_name,photo',
+                            'client:id,first_name,last_name',
+                            'statusDoc:id,name',
+                        ])
+                        ->where('organization_id', $orgId)
+                        ->orderByDesc('created_at')
+                        ->get();
 
-        return response()->json([
-            'success' => true,
-            'orders'  => $orders,
-            'status'  => StatusDoc::all(),
-        ]);
-    } catch (\Throwable $e) {
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 500);
+            /* 3. справочник статусов id => name */
+            $statuses = StatusDoc::pluck('name', 'id');   // {"uuid": "название", …}
+
+            /* 4. обычный массив – Laravel сам сделает JSON */
+            return [
+                'success'  => true,
+                'orders'   => $orders,
+                'statuses' => $statuses,
+            ];
+
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ];
+        }
     }
-}
 
 
 
@@ -180,85 +173,93 @@ public function updateOrderProducts(Request $request, $orderId)
 
 
 
-public function confirmOrder($orderId)
-    {
-        // 1) Find the order with its items
-        $order = Order::with('orderItems')->findOrFail($orderId);
+public function confirmOrder(string $orderId)
+{
+    /* ── 0. Получаем заказ + позиции ─────────────────────────────── */
+    $order = Order::with('orderItems')->findOrFail($orderId);
 
-        // 2) Update order => status_id = 4 ('исполнено')
-        $order->status_id = 4;
-        $order->save();
+    if (!$order->packer_id) {
+        return [
+            'success' => false,
+            'message' => 'У заказа отсутствует packer_id — подтверждение невозможно.',
+        ];
+    }
 
-        // 3) Retrieve the packer_id from the order
-        $packerId = $order->packer_id;
-        if (!$packerId) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This order has no packer_id. Cannot confirm.',
-            ], 400);
-        }
+    /* ── 1. Находим UUID статуса «исполнено» ─────────────────────── */
+    $doneStatusId = StatusDoc::where('name', 'исполнено')->value('id');
+    if (!$doneStatusId) {
+        return [
+            'success' => false,
+            'message' => 'Статус «исполнено» не найден в status_docs',
+        ];
+    }
 
-        // 4) Find the warehouse associated with that packer_id
-        $warehouse = Warehouse::where('packer_id', $packerId)->first();
-        if (!$warehouse) {
-            return response()->json([
-                'success' => false,
-                'message' => "No warehouse found for packer_id={$packerId}",
-            ], 404);
-        }
+    /* ── 2. UUID типа документа «sale» ───────────────────────────── */
+    $saleTypeId = DocumentType::where('code', 'sale')->value('id');
+    if (!$saleTypeId) {
+        return [
+            'success' => false,
+            'message' => 'Тип документа с code = "sale" не найден в document_types',
+        ];
+    }
 
-        // 5) Create a new Document (sale => document_type_id=3).
-        // Adjust fields as needed: from_warehouse_id, client_id, etc.
+    /* ── 3. Транзакция: обновляем всё одним пакетом ──────────────── */
+    DB::transaction(function () use ($order, $doneStatusId, $saleTypeId) {
+
+        /* 3.1  Обновляем статус заказа */
+        $order->update(['status_id' => $doneStatusId]);
+
+        /* 3.2  Склад, привязанный к packer_id */
+        $warehouse = Warehouse::where('packer_id', $order->packer_id)->firstOrFail();
+
+        /* 3.3  Создаём документ-продажу */
         $document = Document::create([
-            'document_type_id'  => 3,         // 3 => sale
+            'document_type_id'  => $saleTypeId,
             'from_warehouse_id' => $warehouse->id,
-            'client_id'         => $order->user_id,  // Or some other user reference
-            'status'            => 'confirmed',
-            'worker_user_id'    => $packerId,
+            'client_id'         => $order->user_id,
+            'worker_user_id'    => $order->packer_id,
             'document_date'     => now(),
+            'status'            => 'confirmed',
             'comments'          => "Sale from Order #{$order->id}",
         ]);
 
-        // 6) For each item in the order, subtract from warehouse_items & create doc items
+        /* 3.4  Обрабатываем каждую позицию */
         foreach ($order->orderItems as $item) {
-            // 6a) Find the matching warehouse item row
-            $warehouseItem = WarehouseItem::where('warehouse_id', $warehouse->id)
-                ->where('product_subcard_id', $item->product_subcard_id)
-                ->where('unit_measurement', $item->unit_measurement)
-                ->first();
 
-            // 6b) Subtract the order quantity from the warehouse item
-            if ($warehouseItem) {
-                $warehouseItem->quantity -= $item->quantity;
-                if ($warehouseItem->quantity < 0) {
-                    $warehouseItem->quantity = 0; // or throw an error if you disallow negative
-                }
-                $warehouseItem->save();
+            // строка склада для того же товара и единицы измерения
+            $whItem = WarehouseItem::where('warehouse_id',      $warehouse->id)
+                       ->where('product_subcard_id', $item->product_subcard_id)
+                       ->where('unit_measurement',   $item->unit_measurement)
+                       ->first();
+
+            // списываем остаток
+            if ($whItem) {
+                $whItem->quantity = max(0, $whItem->quantity - $item->quantity);
+                $whItem->save();
             }
 
-            // 6c) Create the DocumentItem, copying fields from warehouseItem to avoid null
+            // создаём строку документа
             DocumentItem::create([
-                'document_id'         => $document->id,
-                'product_subcard_id'  => $item->product_subcard_id,
-                'unit_measurement'    => $item->unit_measurement,
-                'quantity'            => $item->quantity,
-                'price'               => $item->price,
-                'total_sum'           => $item->price * $item->quantity,
+                'document_id'        => $document->id,
+                'product_subcard_id' => $item->product_subcard_id,
+                'unit_measurement'   => $item->unit_measurement,
+                'quantity'           => $item->quantity,
+                'price'              => $item->price,
+                'total_sum'          => $item->price * $item->quantity,
 
-                // Copy from warehouseItem if you want same brutto/netto, or from $item if it has them
-                'brutto'             => optional($warehouseItem)->brutto ?? 0,
-                'netto'              => optional($warehouseItem)->netto ?? 0,
-                'cost_price'         => optional($warehouseItem)->cost_price ?? 0,
-                'additional_expenses'=> optional($warehouseItem)->additional_expenses ?? 0,
+                // берём данные из warehouseItem (если есть) — иначе 0
+                'brutto'             => $whItem->brutto              ?? 0,
+                'netto'              => $whItem->netto               ?? 0,
+                'cost_price'         => $whItem->cost_price          ?? 0,
+                'additional_expenses'=> $whItem->additional_expenses ?? 0,
             ]);
         }
+    });
 
-        // 7) Return success response
-        return response()->json([
-            'success' => true,
-            'message' => 'Заказ подтвержден (исполнено), документ создан (продажа).',
-            'document_id' => $document->id,
-        ], 200);
-    }
-
+    /* ── 4. Успешный ответ ───────────────────────────────────────── */
+    return [
+        'success' => true,
+        'message' => 'Заказ подтверждён. Статус изменён на «исполнено», документ продажи создан.',
+    ];
+}
 }

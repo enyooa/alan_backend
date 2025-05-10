@@ -40,6 +40,7 @@ use App\Http\Controllers\WarehousesController;
 use App\Http\Controllers\WriteoffIncomesController;
 use App\Http\Controllers\TransferIncomesController;
 use App\Http\Controllers\AdminCashController;
+use App\Http\Controllers\InvoiceController;
 
 
 
@@ -99,7 +100,7 @@ use App\Models\FinancialOrder;
    /**
     * Admin Routes
     */
-    Route::middleware(['auth:sanctum', 'role:admin,superadmin,storager'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:admin,superadmin,storager,packer'])->group(function () {
    /**
     * Product Cards
     */
@@ -212,6 +213,9 @@ use App\Models\FinancialOrder;
     Route::patch('/references',               [ReferenceController::class, 'bulkUpdate']);      // массив разных типов
 Route::patch('/references/{type}',        [ReferenceController::class, 'bulkUpdate']);      // массив одного типа
 
+Route::get('counterparty', [ReferenceController::class,'counterparties']);
+Route::get('invoices', [InvoiceController::class,'index']);
+Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
 
     Route::get('getStorageUsers',[StorageController::class,'getStorageUsers']);
    // Инициализация для перемещения (получение остатков "От кого" user)
@@ -292,7 +296,7 @@ Route::patch('/references/{type}',        [ReferenceController::class, 'bulkUpda
     Route::get('getSalesClientPage', [SalesController::class, 'getSalesWithDetails']);
     Route::get('/product_subcards_for_clientpage', [SubCardController::class, 'getSubCards']);
     Route::get('/product_cards_for_clientpage', [ProductCardController::class, 'getCardProducts']);
-    Route::put('/orders/{orderId}/confirm', [OrderController::class, 'confirmOrder']);
+    Route::put('/orders/{orderId}/confirm', [OrderController::class, 'confirmOrder'])->whereUuid('orderId');
     Route::get('/client-orders', [ClientController::class, 'getClientOrders']);
 
     // Basket
@@ -419,14 +423,9 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
  * Twilio Verification (HEAD)
  */
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
-    Route::middleware(['auth:sanctum', 'role:superadmin,admin,cashbox,storager'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:superadmin,admin,cashbox,storager,client'])->group(function () {
 
-    Route::prefix('financial-summary')->group(function () {
-        Route::get('day',   [FinancialSummaryController::class, 'day']);    // ?date=YYYY‑MM‑DD
-        Route::get('week',  [FinancialSummaryController::class, 'week']);   // ?date=YYYY‑MM‑DD (любой день недели)
-        Route::get('month', [FinancialSummaryController::class, 'month']);  // ?year=YYYY&month=MM
-        Route::get('year',  [FinancialSummaryController::class, 'year']);   // ?year=YYYY
-    });
+    Route::get('/financial-summary', [FinancialSummaryController::class, 'summary']);
 
     Route::get('report-debts', [ReportsController::class, 'debtsReport']);
     Route::get('report-sales', [ReportsController::class, 'getSalesReport']);
@@ -459,6 +458,9 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     // сотрудники
     Route::get('stuff', [UserController::class, 'stuff']);
     Route::put('/users/{user}/roles-permissions', [UserController::class,'updateStuff']);
+    Route::get('plans', [UserController::class, 'plans']);
+    Route::get('me', [UserController::class, 'me']);
+
 
     // фин ордер
     Route::post('/financial-elements', [FinancialElementController::class, 'store']);
@@ -504,31 +506,31 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     //приход товара
     Route::post('/income-products', [IncomesController::class, 'storeIncomes']);
     Route::put('/income-products/{document}', [IncomesController::class, 'updateIncomes'])
-    ->whereNumber('document');
+    ->whereUuid('document');
     Route::delete('/income-products/{document}',        // URL
     [IncomesController::class,'destroyIncomes'])   // method
-->whereNumber('document');
+->whereUuid('document');
 
     // продажа
 
     Route::get('sales-products',[SalesIncomesController::class,'indexSales']);
     Route::post('sales-products',[SalesIncomesController::class,'postSales']);
     Route::put('/sales-products/{document}', [SalesIncomesController::class, 'updateSales'])
-     ->whereNumber('document');
+     ->whereUuid('document');
 
     Route::delete('/sales-products/{document}',        // URL
     [SalesIncomesController::class,'destroySales'])   // method
-    ->whereNumber('document');
+    ->whereUuid('document');
 
     // списание
     Route::post('writeoff-products',[WriteoffIncomesController::class,'postWriteOff']);
     Route::put('/writeoff-products/{document}', [WriteoffIncomesController::class, 'updateWriteOff'])
-    ->whereNumber('document');
+    ->whereUuid('document');
 
     Route::get('writeoff-products',[WriteoffIncomesController::class,'indexWriteOff']);
 
     Route::delete('/writeoff-products/{document}', [WriteoffIncomesController::class, 'deleteWriteOff'])
-        ->whereNumber('document');
+        ->whereUuid('document');
 
     // перемещение
     Route::get('/transfer-products', [TransferIncomesController::class,'indexTransfers']);
@@ -536,11 +538,11 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
 
     /* обновить */
     Route::put('transfer-products/{document}', [TransferIncomesController::class,'updateTransfer'])
-         ->whereNumber('document');
+         ->whereUuid('document');
 
     /* удалить */
     Route::delete('transfer-products/{document}', [TransferIncomesController::class,'destroyTransfer'])
-         ->whereNumber('document');
+         ->whereUuid('document');
 
     Route::prefix('price-offers')->group(function () {
 
@@ -549,13 +551,13 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     Route::post('/',              [PriceRequestController::class,'store']);
 
     Route::get('{order}',         [PriceRequestController::class,'show'])
-            ->whereNumber('order');
+            ->whereUuid('order');
 
     Route::put('{order}',         [PriceRequestController::class,'update'])
-            ->whereNumber('order');
+            ->whereUuid('order');
 
     Route::delete('{order}',      [PriceRequestController::class,'destroy'])
-            ->whereNumber('order');
+            ->whereUuid('order');
 });
 
     /**  инвентаризация  */

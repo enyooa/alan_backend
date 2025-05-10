@@ -1,337 +1,322 @@
 <?php
 
 namespace App\Http\Controllers;
-use App\Models\Document;
-use App\Models\DocumentItem;
-use App\Models\DocumentType;
-use App\Models\Unit_measurement;
-use App\Models\Warehouse;
-use App\Models\WarehouseItem;
+
+use Illuminate\Http\Request;
+use App\Models\{
+    Document,
+    DocumentItem,
+    DocumentType,
+    Unit_measurement,
+    WarehouseItem
+};
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Str;  // ← import Str
-
-use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class TransferIncomesController extends Controller
 {
-    public function indexTransfers(): JsonResponse
-{
-    $docs = Document::with([
-                'fromWarehouse:id,name',
-                'toWarehouse:id,name',
-                'items',
-                'items.product',
-                'items.unitByName',
-            ])
-            ->whereHas('documentType', fn($q)=>$q->where('code','transfer'))
-            ->orderByDesc('document_date')
-            ->get();
-
-    return response()->json($docs);
-}
-
-
-/*──────────────────────────────
-| B.  Создание перемещения
-*──────────────────────────────*/
-public function storeTransfer(Request $request): JsonResponse
-{
-    /* 1.  ВАЛИДАЦИЯ c UUID ─────────────────────────────── */
-    $data = $request->validate([
-        'from_warehouse_id'                     => ['required','uuid','different:to_warehouse_id','exists:warehouses,id'],
-        'to_warehouse_id'                       => ['required','uuid','exists:warehouses,id'],
-        'docDate'                               => ['required','date'],
-
-        'products'                              => ['required','array','min:1'],
-        'products.*.product.product_subcard_id' => ['required','uuid','exists:product_sub_cards,id'],
-        'products.*.unit.id'                    => ['required','uuid','exists:unit_measurements,id'],
-        'products.*.qty'                        => ['required','numeric','gt:0'],
-    ]);
-
-    /* 2.  Шорткаты */
-    $srcId = $data['from_warehouse_id'];   // uuid
-    $dstId = $data['to_warehouse_id'];     // uuid
-    $date  = Carbon::parse($data['docDate'])->toDateString();
-    $rows  = $data['products'];
-    $orgId = $request->user()->organization_id;   // 👈
-
-    DB::beginTransaction();
-    try {
-        /* 3-A. «Шапка» */
-        $type = DocumentType::where('code','transfer')->firstOrFail();
-
-        $doc = Document::create([
-            'id'                => Str::uuid(),           // если PK-UUID
-            'organization_id'   => $orgId,                // 👈
-            'document_type_id'  => $type->id,
-            'status'            => '-',
-            'from_warehouse_id' => $srcId,
-            'to_warehouse_id'   => $dstId,
-            'document_date'     => $date,
-            'comments'          => "Перемещение $srcId → $dstId",
-        ]);
-
-        /* 3-B. Строки + движение остатков */
-        foreach ($rows as $row) {
-            $prodId   = data_get($row,'product.product_subcard_id');
-            $unitId   = data_get($row,'unit.id');
-            $unitName = Unit_measurement::findOrFail($unitId)->name;
-            $qty      = (float) $row['qty'];
-
-            /* склад-источник */
-            $src = WarehouseItem::where([
-                        'warehouse_id'       => $srcId,
-                        'product_subcard_id' => $prodId,
-                        'unit_measurement'   => $unitName,
-                    ])->first();
-
-            throw_if(!$src, \Exception::class, "Товар $prodId отсутствует на складе-источнике");
-            throw_if($src->quantity < $qty,
-                     \Exception::class,
-                     "Недостаточно остатка ($prodId / $unitName)");
-
-            /* пропорции */
-            $ratio   = $qty / $src->quantity;
-            $brutOut = round($src->brutto * $ratio, 2);
-            $netOut  = round($src->netto  * $ratio, 2);
-
-            /* списываем со SRC */
-            $src->decrementEach([
-                'quantity' => $qty,
-                'brutto'   => $brutOut,
-                'netto'    => $netOut,
-            ]);
-
-            /* приходим на DST */
-            $dst = WarehouseItem::firstOrCreate(
-                ['warehouse_id'=>$dstId,'product_subcard_id'=>$prodId,'unit_measurement'=>$unitName],
-                ['quantity'=>0,'brutto'=>0,'netto'=>0]
-            );
-            $dst->incrementEach([
-                'quantity' => $qty,
-                'brutto'   => $brutOut,
-                'netto'    => $netOut,
-            ]);
-
-            /* строка документа хранит остаток SRC-склада */
-            DocumentItem::create([
-                'id'                  => Str::uuid(),
-                'document_id'         => $doc->id,
-                'product_subcard_id'  => $prodId,
-                'unit_measurement'    => $unitName,
-                'quantity'            => $src->quantity,
-                'brutto'              => $src->brutto,
-                'netto'               => $src->netto,
-                'net_unit_weight'     => $src->quantity>0 ? round($src->netto/$src->quantity,4) : 0,
-            ]);
-        }
-
-        DB::commit();
-        return response()->json([
-            'success' => true,
-            'message' => 'Transfer saved',
-            'doc_id'  => $doc->id,
-        ], 201);
-
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('storeTransfer', ['error'=>$e->getMessage()]);
-        return response()->json(['success'=>false,'error'=>$e->getMessage()], 500);
-    }
-}
-
-
-
-/*──────────────────────────────
-| C.  Обновление перемещения
-*──────────────────────────────*/
-/**
- * PUT /transfer-products/{document}
- * Тело запроса ➜ тот же JSON, что и для POST (см. storeTransfer)
- */
-public function updateTransfer(Request $request, Document $document): JsonResponse
-{
-    /* 0. убеждаемся, что документ — именно «перемещение» */
-    if (!$document->documentType || $document->documentType->code !== 'transfer') {
-        return response()->json(['error' => 'Not a transfer document'], 422);
+    /*════════════ 1. LIST ════════════*/
+    public function indexTransfers()
+    {
+        return Document::with([
+                    'fromWarehouse:id,name',
+                    'toWarehouse:id,name',
+                    'items',
+                    'items.product',
+                    'items.unitByName',
+                ])
+                ->whereHas('documentType', fn ($q) => $q->where('code', 'transfer'))
+                ->orderByDesc('document_date')
+                ->get();
     }
 
-    /* 1. валидация входных данных точно по payload React-Native */
-    $data = $request->validate([
-        'from_warehouse_id'                        => ['required','uuid','different:to_warehouse_id','exists:warehouses,id'],
-        'to_warehouse_id'                          => ['required','uuid','exists:warehouses,id'],
-        'docDate'                                  => ['required','date'],
-        'products'                                 => ['required','array','min:1'],
+    /*════════════ 2. STORE ═══════════*/
+    public function storeTransfer(Request $request)
+    {
+        /* 1. VALIDATE */
+        $rules = [
+            'from_warehouse_id'                     => ['required','uuid','different:to_warehouse_id','exists:warehouses,id'],
+            'to_warehouse_id'                       => ['required','uuid','exists:warehouses,id'],
+            'docDate'                               => ['required','date'],
 
-        // вложенные объекты
-        'products.*.product.product_subcard_id'    => ['required','uuid','exists:product_sub_cards,id'],
-        'products.*.unit.id'                       => ['required','uuid','exists:unit_measurements,id'],
-        'products.*.qty'                           => ['required','numeric'],
-    ]);
+            'products'                              => ['required','array','min:1'],
+            'products.*.product.product_subcard_id' => ['required','uuid','exists:product_sub_cards,id'],
 
-    /* 2. шорткаты */
-    $srcId = $data['from_warehouse_id'];
-    $dstId = $data['to_warehouse_id'];
-    $date  = Carbon::parse($data['docDate'])->toDateString();
-    $rows  = $data['products'];
+            // единица: можно id, можно name
+            'products.*.unit.id'                    => ['nullable','uuid','exists:unit_measurements,id'],
+            'products.*.unit.name'                  => ['nullable','string','exists:unit_measurements,name'],
 
-    DB::beginTransaction();
-    try {
-        /* ─────────────────────────────────────────────────────
-         * A.   ОТКАТЫВАЕМ СТАРОЕ перемещение
-         *─────────────────────────────────────────────────────*/
-        foreach ($document->items as $old) {
-            // a) вернём остаток на склад-источник
-            $src = WarehouseItem::firstOrCreate(
-                       ['warehouse_id'       => $document->from_warehouse_id,
-                        'product_subcard_id' => $old->product_subcard_id,
-                        'unit_measurement'   => $old->unit_measurement],
-                       ['quantity'=>0,'brutto'=>0,'netto'=>0]
-                   );
-            $src->quantity += $old->quantity;
-            $src->brutto   += $old->brutto;
-            $src->netto    += $old->netto;
-            $src->save();
+            'products.*.qty'                        => ['required','numeric','gt:0'],
+        ];
 
-            // b) вычтем тот же объём со склада-получателя
-            $dst = WarehouseItem::where([
-                      'warehouse_id'       => $document->to_warehouse_id,
-                      'product_subcard_id' => $old->product_subcard_id,
-                      'unit_measurement'   => $old->unit_measurement,
-                  ])->first();
-            if ($dst) {
-                $dst->quantity -= $old->quantity;
-                $dst->brutto   -= $old->brutto;
-                $dst->netto    -= $old->netto;
-                $dst->save();
+        $validator = validator($request->all(), $rules);
+        $validator->after(function ($v) {
+            foreach ($v->getData()['products'] as $i => $row) {
+                if (empty(data_get($row,'unit.id')) && empty(data_get($row,'unit.name'))) {
+                    $v->errors()->add("products.$i.unit",
+                        'Нужно передать либо unit.id, либо unit.name');
+                }
             }
-        }
+        });
+        $data = $validator->validate();
 
-        /* c) удаляем старые строки */
-        $document->items()->delete();
+        /* 2. SHORTCUTS */
+        $srcId = $data['from_warehouse_id'];
+        $dstId = $data['to_warehouse_id'];
+        $date  = Carbon::parse($data['docDate'])->toDateString();
+        $rows  = $data['products'];
+        $orgId = $request->user()->organization_id;
 
-        /* ─────────────────────────────────────────────────────
-         * B.  ПРИМЕНЯЕМ НОВЫЕ строки (логика = storeTransfer)
-         *─────────────────────────────────────────────────────*/
-        foreach ($rows as $row) {
+        DB::beginTransaction();
+        try {
+            $docType = DocumentType::where('code','transfer')->firstOrFail();
 
-            $prodId   = data_get($row,'product.product_subcard_id');
-            $unitId   = data_get($row,'unit.id');
-            $unitName = Unit_measurement::findOrFail($unitId)->name;
-            $qty      = (float)$row['qty'];
+            $doc = Document::create([
+                'id'                => (string) Str::uuid(),
+                'organization_id'   => $orgId,
+                'document_type_id'  => $docType->id,
+                'status'            => '-',
+                'from_warehouse_id' => $srcId,
+                'to_warehouse_id'   => $dstId,
+                'document_date'     => $date,
+                'comments'          => "Перемещение $srcId → $dstId",
+            ]);
 
-            /* — списываем с нового source склада — */
-            $src = WarehouseItem::where([
-                       'warehouse_id'       => $srcId,
-                       'product_subcard_id' => $prodId,
-                       'unit_measurement'   => $unitName,
-                   ])->first();
+            foreach ($rows as $row) {
+                $prodId   = data_get($row,'product.product_subcard_id');
+                $unitName = $this->resolveUnitName($row);
+                $qty      = (float) $row['qty'];
 
-            if (!$src || $src->quantity < $qty) {
-                throw new \Exception("Недостаточно товара ID=$prodId ($unitName) на складе-источнике.");
+                $src = WarehouseItem::where([
+                           'warehouse_id'       => $srcId,
+                           'product_subcard_id' => $prodId,
+                           'unit_measurement'   => $unitName,
+                       ])->first();
+
+                throw_if(!$src, \Exception::class, "Нет $prodId ($unitName) на складе-источнике");
+                throw_if($src->quantity < $qty, \Exception::class,
+                         "Недостаточно остатка $prodId ($unitName)");
+
+                $ratio  = $qty / $src->quantity;
+                $brMove = round($src->brutto * $ratio, 2);
+                $ntMove = round($src->netto  * $ratio, 2);
+
+                $src->update([
+                    'quantity' => $src->quantity - $qty,
+                    'brutto'   => $src->brutto   - $brMove,
+                    'netto'    => $src->netto    - $ntMove,
+                ]);
+
+                $dst = WarehouseItem::firstOrCreate(
+                         ['warehouse_id'=>$dstId,'product_subcard_id'=>$prodId,'unit_measurement'=>$unitName],
+                         ['quantity'=>0,'brutto'=>0,'netto'=>0]
+                       );
+                $dst->update([
+                    'quantity' => $dst->quantity + $qty,
+                    'brutto'   => $dst->brutto   + $brMove,
+                    'netto'    => $dst->netto    + $ntMove,
+                ]);
+
+                DocumentItem::create([
+                    'id'                 => (string) Str::uuid(),
+                    'document_id'        => $doc->id,
+                    'product_subcard_id' => $prodId,
+                    'unit_measurement'   => $unitName,
+                    'quantity'           => $src->quantity,
+                    'brutto'             => $src->brutto,
+                    'netto'              => $src->netto,
+                    'net_unit_weight'    => $src->quantity>0 ? round($src->netto/$src->quantity,4) : 0,
+                ]);
             }
 
-            $ratio      = $qty / $src->quantity;
-            $brutOut    = round($src->brutto * $ratio,2);
-            $netOut     = round($src->netto  * $ratio,2);
+            DB::commit();
+            return ['success'=>true,'message'=>'Transfer saved','doc_id'=>$doc->id];
 
-            $src->quantity -= $qty;
-            $src->brutto   -= $brutOut;
-            $src->netto    -= $netOut;
-            $src->save();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('storeTransfer: '.$e->getMessage());
+            return ['success'=>false,'error'=>$e->getMessage()];
+        }
+    }
 
-            /* — добавляем на новый dest склад — */
-            $dst = WarehouseItem::firstOrCreate(
-                     ['warehouse_id'=>$dstId,'product_subcard_id'=>$prodId,'unit_measurement'=>$unitName],
-                     ['quantity'=>0,'brutto'=>0,'netto'=>0]
-                   );
-            $dst->quantity += $qty;
-            $dst->brutto   += $brutOut;
-            $dst->netto    += $netOut;
-            $dst->save();
-
-            /* — строка документа хранит остаток на SRC — */
-            DocumentItem::create([
-                'document_id'        => $document->id,
-                'product_subcard_id' => $prodId,
-                'unit_measurement'   => $unitName,
-                'quantity'           => $src->quantity,
-                'brutto'             => $src->brutto,
-                'netto'              => $src->netto,
-                'net_unit_weight'    => $src->quantity>0 ? round($src->netto/$src->quantity,4) : 0,
-            ]);
+    /*════════════ 3. UPDATE ══════════*/
+    public function updateTransfer(Request $request, Document $document)
+    {
+        Log::info($request);
+        $document->load('documentType', 'items');
+        if ($document->documentType->code !== 'transfer') {
+            return ['success'=>false,'error'=>'Not a transfer document'];
         }
 
-        /* ─────────────────────────────────────────────────────
-         * C.  Обновляем «шапку»
-         *─────────────────────────────────────────────────────*/
-        $document->update([
-            'from_warehouse_id' => $srcId,
-            'to_warehouse_id'   => $dstId,
-            'document_date'     => $date,
-            'comments'          => "Перемещение $srcId → $dstId (обновлено)",
-        ]);
+        $rules = [
+            'from_warehouse_id'                     => ['required','uuid','different:to_warehouse_id','exists:warehouses,id'],
+            'to_warehouse_id'                       => ['required','uuid','exists:warehouses,id'],
+            'docDate'                               => ['required','date'],
+            'products'                              => ['required','array','min:1'],
+            'products.*.product.product_subcard_id' => ['required','uuid','exists:product_sub_cards,id'],
+            'products.*.unit.id'                    => ['nullable','uuid','exists:unit_measurements,id'],
+            'products.*.unit.name'                  => ['nullable','string','exists:unit_measurements,name'],
+            'products.*.qty'                        => ['required','numeric','gt:0'],
+        ];
 
-        DB::commit();
-        return response()->json(['success'=>true,'message'=>'Transfer updated'],200);
+        $validator = validator($request->all(), $rules);
+        $validator->after(function ($v) {
+            foreach ($v->getData()['products'] as $i => $row) {
+                if (empty(data_get($row,'unit.id')) && empty(data_get($row,'unit.name'))) {
+                    $v->errors()->add("products.$i.unit",
+                        'Нужно передать либо unit.id, либо unit.name');
+                }
+            }
+        });
+        $data = $validator->validate();
 
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('updateTransfer error: '.$e->getMessage());
-        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
+        $srcId = $data['from_warehouse_id'];
+        $dstId = $data['to_warehouse_id'];
+        $date  = Carbon::parse($data['docDate'])->toDateString();
+        $rows  = $data['products'];
+
+        DB::beginTransaction();
+        try {
+            /* A. Откат старых движений */
+            foreach ($document->items as $old) {
+                $this->returnStock($document->from_warehouse_id, $old);
+                $this->takeFromStock($document->to_warehouse_id,   $old);
+            }
+            $document->items()->delete();
+
+            /* B. Применяем новые строки */
+            foreach ($rows as $row) {
+                $prodId   = data_get($row,'product.product_subcard_id');
+                $unitName = $this->resolveUnitName($row);
+                $qty      = (float)$row['qty'];
+
+                $src = WarehouseItem::where([
+                           'warehouse_id'=>$srcId,
+                           'product_subcard_id'=>$prodId,
+                           'unit_measurement'=>$unitName,
+                       ])->first();
+
+                throw_if(!$src || $src->quantity < $qty,
+                         \Exception::class,
+                         "Недостаточно $prodId ($unitName) на складе-источнике");
+
+                $ratio   = $qty / $src->quantity;
+                $brOut   = round($src->brutto * $ratio,2);
+                $ntOut   = round($src->netto  * $ratio,2);
+
+                $src->update([
+                    'quantity'=> $src->quantity - $qty,
+                    'brutto'  => $src->brutto  - $brOut,
+                    'netto'   => $src->netto   - $ntOut,
+                ]);
+
+                $dst = WarehouseItem::firstOrCreate(
+                         ['warehouse_id'=>$dstId,'product_subcard_id'=>$prodId,'unit_measurement'=>$unitName],
+                         ['quantity'=>0,'brutto'=>0,'netto'=>0]);
+                $dst->update([
+                    'quantity'=> $dst->quantity + $qty,
+                    'brutto'  => $dst->brutto  + $brOut,
+                    'netto'   => $dst->netto   + $ntOut,
+                ]);
+
+                DocumentItem::create([
+                    'id'                 => (string) Str::uuid(),
+                    'document_id'        => $document->id,
+                    'product_subcard_id' => $prodId,
+                    'unit_measurement'   => $unitName,
+                    'quantity'           => $src->quantity,
+                    'brutto'             => $src->brutto,
+                    'netto'              => $src->netto,
+                    'net_unit_weight'    => $src->quantity>0 ? round($src->netto/$src->quantity,4) : 0,
+                ]);
+            }
+
+            /* C. Шапка */
+            $document->update([
+                'from_warehouse_id' => $srcId,
+                'to_warehouse_id'   => $dstId,
+                'document_date'     => $date,
+                'comments'          => "Перемещение $srcId → $dstId (обновлено)",
+            ]);
+
+            DB::commit();
+            return ['success'=>true,'message'=>'Transfer updated'];
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('updateTransfer: '.$e->getMessage());
+            return ['success'=>false,'error'=>$e->getMessage()];
+        }
     }
-}
 
+    /*════════════ 4. DELETE ══════════*/
+    public function destroyTransfer(Document $document)
+    {
+        $document->load('documentType', 'items');
+        if ($document->documentType->code !== 'transfer') {
+            return ['success'=>false,'error'=>'Not a transfer document'];
+        }
 
-/*──────────────────────────────
-| D.  Удаление перемещения
-*──────────────────────────────*/
-public function destroyTransfer(Document $document): JsonResponse
-{
-    if (!$document->documentType || $document->documentType->code !== 'transfer') {
-        return response()->json(['error'=>'Not a transfer document'],422);
+        DB::beginTransaction();
+        try {
+            foreach ($document->items as $row) {
+                $this->returnStock($document->from_warehouse_id, $row);
+                $this->takeFromStock($document->to_warehouse_id,   $row);
+            }
+
+            $document->items()->delete();
+            $document->delete();
+
+            DB::commit();
+            return ['success'=>true,'message'=>'Transfer deleted'];
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('destroyTransfer: '.$e->getMessage());
+            return ['success'=>false,'error'=>$e->getMessage()];
+        }
     }
 
-    DB::beginTransaction();
-    try {
-        foreach ($document->items as $row) {
-            $movedQty = $row->quantity_before_move = ($row->quantity ?? 0)   // сколько переместили
-                       ? $row->quantity_before_move = $row->quantity_before_move ?? 0
-                       : 0;
+    /*════════════ HELPERS ════════════*/
+    /** Определяем название единицы измерения из row */
+    protected function resolveUnitName(array $row): string
+    {
+        if ($name = data_get($row,'unit.name')) {
+            return $name;
+        }
+        if ($id = data_get($row,'unit.id')) {
+            return Unit_measurement::findOrFail($id)->name;
+        }
+        throw new \Exception('Единица измерения не указана');
+    }
 
-            /* вернуть на SRC */
-            $src = WarehouseItem::firstOrCreate(
-                    ['warehouse_id'=>$document->from_warehouse_id,
-                     'product_subcard_id'=>$row->product_subcard_id,
-                     'unit_measurement'=>$row->unit_measurement],
-                    ['quantity'=>0,'brutto'=>0,'netto'=>0]);
-            $src->quantity += $movedQty;
-            $src->save();
+    protected function returnStock($whId, $row): void
+    {
+        $stock = WarehouseItem::firstOrCreate(
+            ['warehouse_id'=>$whId,
+             'product_subcard_id'=>$row->product_subcard_id,
+             'unit_measurement'=>$row->unit_measurement],
+            ['quantity'=>0,'brutto'=>0,'netto'=>0]
+        );
+        $stock->quantity += $row->quantity;
+        $stock->brutto   += $row->brutto;
+        $stock->netto    += $row->netto;
+        $stock->save();
+    }
 
-            /* списать с DST */
-            $dst = WarehouseItem::where([
-                    'warehouse_id'=>$document->to_warehouse_id,
+    protected function takeFromStock($whId, $row): void
+    {
+        $stock = WarehouseItem::where([
+                    'warehouse_id'=>$whId,
                     'product_subcard_id'=>$row->product_subcard_id,
                     'unit_measurement'=>$row->unit_measurement])->first();
-            if ($dst) {
-                $dst->quantity -= $movedQty;
-                $dst->save();
-            }
+        if ($stock) {
+            $stock->quantity -= $row->quantity;
+            $stock->brutto   -= $row->brutto;
+            $stock->netto    -= $row->netto;
+            $stock->save();
         }
-
-        $document->items()->delete();
-        $document->delete();
-
-        DB::commit();
-        return response()->json(['success'=>true,'message'=>'Transfer deleted'],200);
-
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('destroyTransfer error: '.$e->getMessage());
-        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
     }
-}
 }

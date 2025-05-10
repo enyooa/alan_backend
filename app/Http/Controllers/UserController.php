@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Permission;
+use App\Models\Plan;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Http\JsonResponse;
 
 class UserController extends Controller
 {
@@ -252,13 +254,14 @@ public function removeRole(Request $request, User $user)
     $roles = Role::with(['users.permissions'])   // eager‑load roles→users→perms
                  ->orderBy('name')
                  ->get();
-
+    $permissions = Permission::all();
     $data = collect();
 
     /* block ➊  “Без ролей” */
     $data->push([
         'role'  => 'Без ролей',
         'users' => $noRoleUsers,
+        'permissions'=> $permissions,
     ]);
 
     /* blocks ➋  each actual role */
@@ -285,35 +288,126 @@ private function userPayload(User $u): array
         'surname'     => $u->surname,
         'whatsapp'    => $u->whatsapp_number,
         'roles'       => $roleNames,                     // ← NEW array of roles
-        'permissions' => $u->permissions
-                           ->map(fn ($p) => [$p->name, (string)$p->code])
-                           ->values(),
+        'permissions'     => $u->allPermissions()->makeHidden('pivot'),
+
     ];
 }
 
     /* helper: что именно отдаём о пользователе  */
-    public function updateStuff(Request $r, User $user)
+    public function updateStuff(Request $request, User $user)
     {
-        $data = $r->validate([
-            'roles'        => ['sometimes','array'],
-            'roles.*'      => ['string','exists:roles,name'],
-            'permissions'  => ['sometimes','array'],
-            'permissions.*'=> ['integer','exists:permissions,code'],
+
+        Log::info([$request,$user->id]);
+        $data = $request->validate([
+            'roles'         => ['sometimes', 'array'],
+            'roles.*'       => ['string',  'exists:roles,name'],
+
+            'permissions'   => ['sometimes', 'array'],
+            'permissions.*' => ['integer', 'exists:permissions,code'],
         ]);
 
-        if (array_key_exists('roles',$data)) {
-            $roleIds = Role::whereIn('name',$data['roles'])->pluck('id');
-            $user->roles()->sync($roleIds);
-        }
+        DB::transaction(function () use ($data, $user) {
 
-        if (array_key_exists('permissions',$data)) {
-            $permIds = Permission::whereIn('code',$data['permissions'])->pluck('id');
-            $user->permissions()->sync($permIds);
-        }
+            /* ───── РОЛИ ───── */
+            if (array_key_exists('roles', $data)) {
+                $roleIds = Role::whereIn('name', $data['roles'])->pluck('id');
+                $user->roles()->sync($roleIds);                 // оставляем ТОЛЬКО присланные
+            }
 
-        return response()->json([
-            'success'=>true,
-            'user'   => $this->userPayload($user->fresh(['roles','permissions']))
+            /* ───── ПРАВА ───── */
+            if (array_key_exists('permissions', $data)) {
+
+                // пустой массив → очищаем pivot полностью
+                if (empty($data['permissions'])) {
+                    $user->permissions()->sync([]);             // удалит все прямые права
+                } else {
+                    $permIds = Permission::whereIn('code', $data['permissions'])
+                                          ->pluck('id');
+                    $user->permissions()->sync($permIds);       // оставляем ТОЛЬКО присланные
+                }
+            }
+        });
+
+        /* ───── собираем обновлённого пользователя ───── */
+        $user->loadMissing([
+            'roles:id,name',
+            'permissions:id,code,name',
+            'organization.plans.permissions:id,code,name',
         ]);
+
+        /* прямые права – без мусора pivot и без двусмысленного id */
+        $direct = $user->permissions
+                       ->map(fn ($p) => [
+                           'id'   => $p->id,
+                           'code' => $p->code,
+                           'name' => $p->name,
+                       ]);
+
+        /* итоговые права (прямые + роли + тариф) той же формы */
+        $merged = $user->allPermissions()            // ← метод из модели
+                       ->map(fn ($p) => [
+                           'id'   => $p->id,
+                           'code' => $p->code,
+                           'name' => $p->name,
+                       ]);
+
+        return [
+            'success'           => true,
+
+            // «сырой» юзер
+            'user'              => $user->only([
+                'id','first_name','last_name','surname',
+                'whatsapp_number','photo','organization_id'
+            ]),
+
+            // роли-строки, напр. ["admin"]
+            'roles'             => $user->roles->pluck('name'),
+
+            // прямые права после sync
+            'directPermissions' => $direct->values(),
+
+            // сумма прямых + ролей + тарифа орг-ии
+            'allPermissions'    => $merged->unique('id')->values(),
+        ];
     }
+
+
+    public function plans()   // ← нет JsonResponse
+    {
+        $plans = Plan::with('permissions:id,code,name')
+                     ->orderBy('price')
+                     ->get()
+                     ->map(fn ($plan) => [
+                         'id'          => $plan->id,
+                         'name'        => $plan->name,
+                         'slug'        => $plan->slug,
+                         'price'       => $plan->price,
+                         'period_days' => $plan->period_days,
+                         'user_limit'  => $plan->user_limit,
+                         'permissions' => $plan->permissions->map(fn ($p) => [
+                             'id'   => $p->id,
+                             'code' => $p->code,
+                             'name' => $p->name,
+                         ]),
+                     ]);
+
+        return $plans;
+    }
+
+    // GET /api/me
+    public function me(Request $request)
+{
+    $u = $request->user();
+
+    return [
+        'id'          => $u->id,
+        'name'        => $u->first_name,
+        'roles'       => $u->roles->pluck('name'),
+        'permissions' => $u->allPermissionCodes(),  // см. ниже
+        'plan'        => optional($u->organization->activePlan())->slug,
+        'org'         => optional($u->organization)->name,
+    ];
+}
+
+
 }

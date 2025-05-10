@@ -54,5 +54,21 @@ class Organization extends Model
                     ->withPivot('starts_at', 'ends_at')
                     ->withTimestamps();
     }
+// app/Models/Organization.php
+public function getPermissionsAttribute()
+{
+    $activePlan = $this->plans()
+        ->wherePivot('starts_at', '<=', now())
+        ->where(function ($q) {
+            $q->whereNull('organization_plan.ends_at')
+              ->orWhere('organization_plan.ends_at', '>=', now());
+        })
+        ->first(); // may be null
+
+    // replace `$activePlan?->permissions ?? collect();`
+    return optional($activePlan)->permissions ?: collect();
+}
+
+
 
 }

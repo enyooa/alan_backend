@@ -14,7 +14,7 @@
        <div v-if="errors.name" class="error-message">
          {{ errors.name.join(', ') }}
        </div>
- 
+
        <div class="form-group">
          <label>Сумма (необязательно)</label>
          <input
@@ -27,7 +27,7 @@
        <div v-if="errors.amount" class="error-message">
          {{ errors.amount.join(', ') }}
        </div>
- 
+
        <div class="form-actions">
          <button type="submit" class="submit-btn" :disabled="loading">
            {{ loading ? '⏳ Создание...' : 'Создать' }}
@@ -39,10 +39,10 @@
      </form>
    </div>
  </template>
- 
+
  <script>
  import axios from "axios";
- 
+
  export default {
    name: "ExpenseFormPage",
    data() {
@@ -57,14 +57,14 @@
      async submitExpense() {
        this.loading = true;
        this.errors = {};
- 
+
        try {
          const token = localStorage.getItem("token");
          if (!token) {
            alert("Отсутствует токен. Пожалуйста, войдите в систему.");
            return;
          }
- 
+
          // POST to your chosen endpoint, e.g. /api/create_expense
          // or /api/references/expense, whichever you use
          const response = await axios.post(
@@ -80,13 +80,13 @@
              }
            }
          );
- 
+
          alert("Расход успешно создан!");
- 
+
          // Clear fields
          this.expenseName = "";
          this.amount = "";
- 
+
          // Notify parent
          this.$emit("saved", response.data);
        } catch (error) {
@@ -104,7 +104,7 @@
    }
  };
  </script>
- 
+
  <style scoped>
  .expense-form {
    max-width: 500px;
@@ -167,4 +167,3 @@
    margin-top: 5px;
  }
  </style>
- 

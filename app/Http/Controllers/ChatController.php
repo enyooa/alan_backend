@@ -16,7 +16,7 @@ class ChatController extends Controller
      */
     public function sendMessage(Request $request)
 {
-    $request->validate(['message' => 'required|string|max:5_000']);
+    $request->validate(['message' => 'required|string']);
 
     $message = $request->user()                  // текущий автор
         ->messages()

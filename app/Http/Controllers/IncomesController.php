@@ -139,25 +139,24 @@ class IncomesController extends Controller
 }
 
 
-public function updateIncomes(Request $request, Document $document): JsonResponse
+public function updateIncomes(Request $request, Document $document)
 {
     Log::info($request->all());
-    /* 0. Убеждаемся, что это именно «Приход» */
+    /* 0.  Проверяем тип документа */
     $document->load('documentType', 'items', 'expenses');
     if ($document->documentType->code !== 'income') {
-        return response()->json(['success'=>false,'error'=>'Not an income document'], 400);
+        return ['success' => false, 'error' => 'Not an income document'];
     }
 
-    /* 1. Валидация входящих данных (в той же форме, что и create) */
+    /* 1.  Валидация */
     $v = $request->validate([
-        'providerId'             => ['nullable','uuid','exists:providers,id'],
-        'assigned_warehouse_id'  => ['required','uuid','exists:warehouses,id'],
-        'docDate'                => ['nullable','date'],
+        'providerId'            => ['nullable','uuid','exists:providers,id'],
+        'assigned_warehouse_id' => ['required','uuid','exists:warehouses,id'],
+        'docDate'               => ['nullable','date'],
 
-        'products'                               => ['required','array','min:1'],
-
-        'products.*.product.id'                  => ['required','uuid','exists:product_sub_cards,id'],
-        'products.*.unit.name'                   => ['required','string'],
+        'products'                                => ['required','array','min:1'],
+        'products.*.product.id'                   => ['required','uuid','exists:product_sub_cards,id'],
+        'products.*.unit.name'                    => ['required','string','exists:unit_measurements,name'],
 
         'products.*.qtyTare'            => ['nullable','numeric'],
         'products.*.quantity'           => ['nullable','numeric'],
@@ -170,20 +169,21 @@ public function updateIncomes(Request $request, Document $document): JsonRespons
 
         'expenses'                      => ['nullable','array'],
         'expenses.*.name.id'            => ['nullable','uuid'],
-        'expenses.*.amount'             => ['nullable','numeric'],
+        'expenses.*.name.name'          => ['nullable','string'],
         'expenses.*.provider.id'        => ['nullable','uuid','exists:providers,id'],
+        'expenses.*.amount'             => ['nullable','numeric'],
     ]);
 
-    /* краткие переменные */
-    $whId   = $v['assigned_warehouse_id'];
-    $pId    = $v['providerId'] ?? null;
-    $date   = Carbon::parse($v['docDate'] ?? now())->toDateString();
-    $rows   = collect($v['products']);
-    $costs  = collect($v['expenses'] ?? []);
+    /* 2.  Шорткаты */
+    $whId  = $v['assigned_warehouse_id'];
+    $prov  = $v['providerId'] ?? null;
+    $date  = Carbon::parse($v['docDate'] ?? now())->toDateString();
+    $rows  = collect($v['products']);
+    $costs = collect($v['expenses'] ?? []);
 
     DB::beginTransaction();
     try {
-        /* 2-A. Откатить старые приходы со склада */
+        /* 2-A. Откатываем старый приход со склада */
         foreach ($document->items as $old) {
             $stock = WarehouseItem::where([
                         'warehouse_id'       => $document->to_warehouse_id,
@@ -191,37 +191,38 @@ public function updateIncomes(Request $request, Document $document): JsonRespons
                         'unit_measurement'   => $old->unit_measurement,
                     ])->first();
 
-            if ($stock) {               // бывают случаи, когда запись уже удалили
-                $stock->quantity    -= $old->quantity;
-                $stock->brutto      -= $old->brutto;
-                $stock->netto       -= $old->netto;
-                $stock->total_sum   -= $old->total_sum;
+            if ($stock) {
+                $stock->quantity  -= $old->quantity;
+                $stock->brutto    -= $old->brutto;
+                $stock->netto     -= $old->netto;
+                $stock->total_sum -= $old->total_sum;
                 $stock->save();
             }
         }
 
-        /* 2-B. Удаляем старые строки и расходы */
+        /* 2-B. Чистим старые строки и расходы */
         $document->items()->delete();
         $document->expenses()->delete();
 
         /* 2-C. Обновляем «шапку» */
         $document->update([
-            'provider_id'     => $pId,
+            'provider_id'     => $prov,
             'to_warehouse_id' => $whId,
             'document_date'   => $date,
             'comments'        => $request->input('comments',''),
         ]);
 
-        /* 2-D. Добавляем новые строки и увеличиваем склад */
+        /* 2-D. Добавляем новые позиции + склад */
         foreach ($rows as $r) {
             $prodId   = data_get($r,'product.id');
             $unitName = data_get($r,'unit.name');
-            $qty      = (float)($r['qtyTare'] ?? $r['quantity'] ?? 0);
-            $brutto   = (float)($r['brutto'] ?? 0);
-            $netto    = (float)($r['netto']  ?? 0);
-            $sum      = (float)($r['total_sum'] ?? 0);
 
-            /* – запись на складе */
+            $qty   = (float)($r['qtyTare'] ?? $r['quantity'] ?? 0);
+            $brut  = (float)($r['brutto'] ?? 0);
+            $net   = (float)($r['netto']  ?? 0);
+            $sum   = (float)($r['total_sum'] ?? 0);
+
+            /* — warehouse_items */
             $stock = WarehouseItem::firstOrNew([
                         'warehouse_id'       => $whId,
                         'product_subcard_id' => $prodId,
@@ -229,69 +230,69 @@ public function updateIncomes(Request $request, Document $document): JsonRespons
                     ]);
 
             $stock->quantity  += $qty;
-            $stock->brutto    += $brutto;
-            $stock->netto     += $netto;
+            $stock->brutto    += $brut;
+            $stock->netto     += $net;
             $stock->total_sum += $sum;
             $stock->price      = $r['price']       ?? $stock->price ?? 0;
             $stock->cost_price = $r['cost_price']  ?? $stock->cost_price ?? 0;
             $stock->save();
 
-            /* – строка документа */
+            /* — document_items */
             DocumentItem::create([
-                'document_id'        => $document->id,
-                'product_subcard_id' => $prodId,
-                'unit_measurement'   => $unitName,
-                'quantity'           => $qty,
-                'brutto'             => $brutto,
-                'netto'              => $netto,
-                'price'              => $r['price']      ?? 0,
-                'total_sum'          => $sum,
-                'additional_expenses'=> $r['additional_expenses'] ?? 0,
-                'cost_price'         => $r['cost_price'] ?? 0,
-                'net_unit_weight'    => $qty>0 ? round($netto/$qty,4) : 0,
+                // 'id'                  => (string) Str::uuid(),
+                'document_id'         => $document->id,
+                'product_subcard_id'  => $prodId,
+                'unit_measurement'    => $unitName,
+                'quantity'            => $qty,
+                'brutto'              => $brut,
+                'netto'               => $net,
+                'price'               => $r['price']      ?? 0,
+                'total_sum'           => $sum,
+                'additional_expenses' => $r['additional_expenses'] ?? 0,
+                'cost_price'          => $r['cost_price'] ?? 0,
+                'net_unit_weight'     => $qty > 0 ? round($net / $qty, 4) : 0,
             ]);
         }
 
-        /* 2-E. Расходы */
+        /* 2-E. Дополнительные расходы */
         foreach ($costs as $c) {
             Expense::create([
                 'document_id' => $document->id,
                 'name'        => data_get($c,'name.name','Расход'),
-                'amount'      => $c['amount'] ?? 0,
                 'provider_id' => data_get($c,'provider.id'),
+                'amount'      => (float)($c['amount'] ?? 0),
             ]);
         }
 
         DB::commit();
-        return response()->json([
-            'success'=>true,
-            'message'=>'Income document updated',
-            'doc_id' =>$document->id,
-        ]);
+        return [
+            'success' => true,
+            'message' => 'Income document updated',
+            'doc_id'  => $document->id,
+        ];
 
     } catch (\Throwable $e) {
         DB::rollBack();
-        Log::error('updateIncomes', ['msg'=>$e->getMessage()]);
-        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
+        Log::error('updateIncomes: '.$e->getMessage());
+        return ['success' => false, 'error' => $e->getMessage()];
     }
 }
 
 /**
  * DELETE /income-products/{document}
  */
-public function destroyIncomes(Document $document): JsonResponse
+public function destroyIncomes(Document $document)
 {
-    /* Убеждаемся, что это «Приход» */
-    $document->load('documentType','items','expenses');
+    $document->load('documentType', 'items', 'expenses');
     if ($document->documentType->code !== 'income') {
-        return response()->json(['success'=>false,'error'=>'Not an income document'], 400);
+        return ['success' => false, 'error' => 'Not an income document'];
     }
 
     DB::beginTransaction();
     try {
         $whId = $document->to_warehouse_id;
 
-        /* 1. Откатываем товар со склада */
+        /* 1. Откатываем складские остатки */
         foreach ($document->items as $row) {
             $stock = WarehouseItem::where([
                         'warehouse_id'       => $whId,
@@ -308,19 +309,18 @@ public function destroyIncomes(Document $document): JsonResponse
             }
         }
 
-        /* 2. Чистим строки и расходы, удаляем сам документ */
+        /* 2. Удаляем строки, расходы и сам документ */
         $document->items()->delete();
         $document->expenses()->delete();
         $document->delete();
 
         DB::commit();
-        return response()->json(['success'=>true,'message'=>'Income document deleted']);
+        return ['success' => true, 'message' => 'Income document deleted'];
 
     } catch (\Throwable $e) {
         DB::rollBack();
-        Log::error('destroyIncomes', ['msg'=>$e->getMessage()]);
-        return response()->json(['success'=>false,'error'=>$e->getMessage()],500);
+        Log::error('destroyIncomes: '.$e->getMessage());
+        return ['success' => false, 'error' => $e->getMessage()];
     }
 }
-
 }

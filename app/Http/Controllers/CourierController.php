@@ -26,6 +26,7 @@ class CourierController extends Controller
             'packer:id,first_name,last_name,photo',
                     'courier:id,first_name,last_name,photo',
                     'client:id,first_name,last_name',
+                    'statusDoc:id,name',
 
             ])
             ->whereNotNull('packer_id')
@@ -167,7 +168,7 @@ public function getCourierOrderDetails(Request $request, $orderId)
 
 public function storeCourierDocument(Request $request)
 {
-    Log::info($request->all());
+    // Log::info($request->all());
 
     /* 1) Validate incoming data ───────────────────────────────────────── */
     $validated = $request->validate([

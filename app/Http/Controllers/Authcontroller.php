@@ -26,48 +26,51 @@ class AuthController extends Controller
      */
     public function login(Request $request)
 {
-    Log::info('Login attempt', $request->all());
-
-    /* ─── 1. Validate input ─── */
     $request->validate([
         'whatsapp_number' => 'required',
         'password'        => 'required',
     ]);
 
-    /* ─── 2. Normalize phone like in register() ─── */
     $phone = $this->formatPhoneNumber($request->whatsapp_number);
 
-    /* ─── 3. Attempt auth ─── */
-    if (! Auth::attempt(['whatsapp_number' => $phone, 'password' => $request->password])) {
+    if (!Auth::attempt(['whatsapp_number' => $phone, 'password' => $request->password])) {
         return response()->json(['message' => 'Неправильный логин или пароль'], 401);
     }
 
-    /* ─── 4. Load user with relations ─── */
-    $user = Auth::user()->load(['roles:id,name', 'organization:id,name']);
-    $isVerified = ! is_null($user->phone_verified_at);
+    /** @var \App\Models\User $user */
+    $user = Auth::user()->load([
+        'roles:id,name',
+        'permissions:id,code,name',
+        'organization:id,name',
+        'roles.permissions:id,code,name',
+        'organization.plans.permissions:id,code,name' // чтобы не было N+1
+    ]);
 
-    /* ─── 5. If NOT verified — deny token, return 423 ─── */
-    if (! $isVerified) {
+    $isVerified = !is_null($user->phone_verified_at);
+
+    // ===== если не подтверждён телефон =====
+    if (!$isVerified) {
         return response()->json([
             'id'              => $user->id,
             'is_verified'     => false,
             'roles'           => $user->roles->pluck('name'),
             'organization'    => $user->organization,
+            'permissions'     => $user->allPermissions()->makeHidden('pivot'), // пустой массив
             'first_name'      => $user->first_name,
             'last_name'       => $user->last_name,
             'surname'         => $user->surname,
             'whatsapp_number' => $user->whatsapp_number,
             'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
             'message'         => 'Телефон не подтверждён. Введите код из WhatsApp/SMS.'
-        ], 423);   // 423 Locked
+        ], 423);
     }
 
-    /* ─── 6. Verified: issue token, return 200 ─── */
+    // ===== подтверждён: отдаём токен и ВСЕ права =====
     $token = $user->createToken('auth_token')->plainTextToken;
 
-    return response()->json([
+    return [
         'id'              => $user->id,
-        'token'           => $token,            // ← видно только когда verified
+        'token'           => $token,
         'is_verified'     => true,
         'roles'           => $user->roles->pluck('name'),
         'organization'    => $user->organization,
@@ -76,8 +79,13 @@ class AuthController extends Controller
         'surname'         => $user->surname,
         'whatsapp_number' => $user->whatsapp_number,
         'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
-    ]);
+
+        // ← самое главное: список прав
+        'permissions'     => $user->allPermissions()   // коллекция с id, code, name
+                             ->makeHidden('pivot'),    // убираем pivot-данные
+    ];
 }
+
 
     /**
      * Register a new user and send a Twilio verification code.

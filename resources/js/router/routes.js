@@ -15,7 +15,7 @@ import TariffPlan from "../views/TariffPlan.vue";
 import RegisterOrganization from "../views/Auth/RegisterOrganization.vue";
 import WriteOffPage from "../views/WriteOffPage.vue";
 import PriceOfferPage from "../views/PriceOfferPage.vue";
-import SalePage from "../views/SalePage.vue";
+
 import ProviderPage from "../views/forms/references/ProviderPage.vue";
 import ExpensePage from "../views/forms/references/ExpensePage.vue";
 import ProductCardPage from "../views/forms/references/ProductCardPage.vue";
@@ -27,8 +27,15 @@ import WarehouseReportPage from "../views/forms/reports/WarehouseReportPage.vue"
 import EmployeeFormPage from "../views/forms/EmployeeFormPage.vue";
 import EmployeesOld from "../views/EmployeesOld.vue";
 import CashPage from "../views/forms/references/CashPage.vue";
+import ClientSale from "../components/operations/ClientSale.vue";
+import SalePage from "../components/operations/Sales.vue";
 
-
+import ExpenseOrdersTable from "../components/financial_orders/ExpenseOrdersTable.vue";
+import IncomeOrdersTable from "../components/financial_orders/IncomeOrdersTable.vue";
+import IncomeOrderCreate from "../components/financial_orders/IncomeOrderCreate.vue";
+import ExpenseOrderCreate from "../components/financial_orders/ExpenseOrderCreate.vue";
+import InvoicePage from "../components/invoices/InvoicePage.vue";
+import InvoiceDetails from "../components/invoices/InvoiceDetails.vue";
 
 export default [
   { path: "/", redirect: "/dashboard" }, // Default to the dashboard
@@ -70,9 +77,14 @@ export default [
   { path: "/roles", component: EmployeeFormPage, name: "roles" },
 
   { path: "/cash", component: CashPage, name: "cash" },
+  { path: "/client-sales", component: ClientSale, name: "client-sales" },
+  { path: "/expenses-order", component: ExpenseOrdersTable, name: "expenses-order" },
+  { path: "/incomes-order", component: IncomeOrdersTable, name: "incomes-order" },
+  { path: "/create-incomes-order", component: IncomeOrderCreate, name: "create-incomes-order" },
+  { path: "/create-expenses-order", component: ExpenseOrderCreate, name: "create-expenses-order" },
 
-
-
-
+  { path: "/invoice", component: InvoicePage, name: "invoice" },
+//   { path: "/invoice-create",  component: InvoiceCreate, name: "invoice-create" }, // если форма создания уже сделана
+  { path: "/invoice/:id",    component:  InvoiceDetails,     name: "invoice-details", props: true },
 
 ];
