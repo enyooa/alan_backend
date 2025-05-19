@@ -48,7 +48,9 @@ class InvoiceController extends Controller
             'organization:id,name',
             'orderItems' => function ($q) {
                 $q->select('id','order_id','product_subcard_id',
-                           'quantity','price','totalsum')
+                           'quantity','price','totalsum',
+                           'unit_measurement'
+                           )
                   ->with('productSubCard:id,name');
             },
         ]);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Organization;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -56,31 +57,58 @@ class ProfileController extends Controller
      * Get User Profile Information
      */
     public function getProfile(Request $request): JsonResponse
-    {
-        /** @var \App\Models\User $user */
-        $user = $request->user()->loadMissing([
-            'roles:id,name',
-            'permissions:id,code,name',
-            'organization:id,name',
-            'organization.plans.permissions:id,code,name',
-            'roles.permissions:id,code,name',
-        ]);
+{
+    /** @var \App\Models\User $user */
+    $user = $request->user()->loadMissing([
+        'roles:id,name',
+        'permissions:id,code,name',
+        'roles.permissions:id,code,name',
+        'organization:id,name',
+        'organization.plans.permissions:id,code,name',
+    ]);
 
-        return response()->json([
-            'id'              => $user->id,
-            'is_verified'     => !is_null($user->phone_verified_at),
-            'roles'           => $user->roles->pluck('name'),
-            'organization'    => $user->organization,
-            'first_name'      => $user->first_name,
-            'last_name'       => $user->last_name,
-            'surname'         => $user->surname,
-            'whatsapp_number' => $user->whatsapp_number,
-            'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
+    /* ─── подгружаем недостающие поля для всех прав, которые "сидят" в кэше Spatie ─── */
+    $user->loadMissing('permissions');               // ← при повторном вызове не грузит заново
+    $user->roles->each(fn ($r) => $r->loadMissing('permissions:id,code,name'));
 
-            // ⟵ тот же массив объектов {id, code, name}, что выдаёт /login
-            'permissions'     => $user->allPermissions()->makeHidden('pivot'),
-        ], 200);
-    }
+    return response()->json([
+        'id'              => $user->id,
+        'is_verified'     => !is_null($user->phone_verified_at),
+        'roles'           => $user->roles->pluck('name')->values(),
+        'organization'    => $this->normalizeOrganization($user->organization),
+        'first_name'      => $user->first_name,
+        'last_name'       => $user->last_name,
+        'surname'         => $user->surname,
+        'whatsapp_number' => $user->whatsapp_number,
+        'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
+
+        /* ↓↓↓ итоговый список без дублей и с гарантированно заполненными полями */
+        'permissions'     => $user->allPermissions()
+                                  ->map(fn ($p) => [
+                                      'id'   => $p->id,
+                                      'code' => (int) $p->code,
+                                      'name' => $p->name,
+                                  ])
+                                  ->unique('id')
+                                  ->sortBy('code')
+                                  ->values(),
+    ], 200);
+}
+
+/* необязательно, но удобно убрать pivot-ы у plan-ов внутри organization */
+private function normalizeOrganization(?Organization $org): ?array
+{
+    if (!$org) return null;
+
+    $org->plans->each(function ($plan) {
+        $plan->makeHidden('pivot');
+        $plan->permissions->makeHidden('pivot');
+    });
+
+    return $org->toArray();
+}
+
+
 
 
     /**

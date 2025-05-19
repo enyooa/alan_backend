@@ -10,6 +10,7 @@ use App\Models\DocumentItem;
 use App\Models\Warehouse;
 use App\Models\WarehouseItem;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 
 class DocumentController extends Controller
 {
@@ -18,35 +19,34 @@ class DocumentController extends Controller
  * GET /api/income-products
  * Возвращает все документы-«Приход» с нужными вложенными данными.
  */
-public function indexIncomes(): \Illuminate\Http\JsonResponse
+public function indexIncomes(): JsonResponse
 {
     $docs = Document::with([
             /* ─── склад-получатель ─── */
             'toWarehouse:id,name',
 
-            /* ─── поставщик из таблицы providers ─── */
+            /* ─── поставщик документа ─── */
             'provider:id,name',
 
-            /* ─── товарные позиции ─── */
-            'items',                              // сами строки
-            'items.unit:id,name,tare',            // единица измерения
+            /* ─── товарные строки ─── */
+            'items',
+            'items.unit:id,name,tare',
 
-            /* (необязательно, но удобно показать товар)            */
-            // если у DocumentItem будет связь productSubCard()
-            // 'items.productSubCard:id,name,product_card_id',
+            /* ─── расходы ─── */
+            // ① выбираем expense_name_id вместо name
+            'expenses:id,document_id,expense_name_id,provider_id,amount',
 
-            /* ─── расходы, привязанные к документу ─── */
-            'expenses:id,document_id,name,provider_id,amount',
-            'expenses.provider:id,name',          // поставщик расхода
+            // ② подгружаем оба связных объекта
+            'expenses.name:id,name',      // название расхода
+            'expenses.provider:id,name',  // поставщик расхода
         ])
-        ->whereHas('documentType', function ($q) {
-            $q->where('code', 'income');
-        })
+        ->whereHas('documentType', fn ($q) => $q->where('code', 'income'))
         ->orderByDesc('document_date')
         ->get();
 
     return response()->json($docs);
 }
+
 
 /*=====================================================================
  |  PUT  /api/income-products/{document}
@@ -487,6 +487,7 @@ public function destroyIncomes(Document $document): JsonResponse
      */
     public function storeWriteOff(Request $request)
 {
+    Log::info($request);
     $validated = $request->validate([
         'warehouse_id'  => 'required|uuid',
         'document_date' => 'required|date',
@@ -507,7 +508,7 @@ public function destroyIncomes(Document $document): JsonResponse
             'document_type_id'  => $docType->id,
             'status'            => '-',
             'from_warehouse_id' => $warehouseId,
-            'to_warehouse_id'   => 0,
+            'to_warehouse_id'   => null,
             'document_date'     => $docDate,
             'comments'          => "Списание со склада #$warehouseId",
             'organization_id'  => $request->user()->organization_id

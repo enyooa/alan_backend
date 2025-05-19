@@ -53,6 +53,7 @@
             { label:'Поставщик',          icon:'pi-dollar',         color:'#86C64E', to:'/provider' },
             { label:'Расход',             icon:'pi-dollar',         color:'#B30000', to:'/expense' },
             { label:'Карточка товара',    icon:'pi-shopping-cart',  color:'#008EA2', to:'/product-card' },
+            { label:'Подкарточка товара', icon:'pi-shopping-cart',  color:'#00A2B8', to:'/subproduct-card' },
             { label:'Адрес',              icon:'pi-home',           color:'#7A7DFF', to:'/address' },
             { label:'Счет',              icon:'pi-dollar',           color:'#F4AA1C', to:'/cash' },
 

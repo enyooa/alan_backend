@@ -1,23 +1,32 @@
 <?php
-
+// app/Models/PhoneVerification.php
+// app/Models/PhoneVerification.php
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class PhoneVerification extends Model
 {
-    use HasFactory;
     public $incrementing = false;
     protected $keyType   = 'string';
-    protected $fillable = [
-        'phone_number',
-        'code',
-        'organization_id'
-    ];
-    protected static function booted()
+
+    /* Сделайте либо так: */
+    protected $fillable = ['phone_number', 'code', 'organization_id'];
+    //  id заполняется в хуке creating; timestamps — по-умолчанию
+
+    /* или вообще откройте всё: */
+    // protected $guarded = [];   // ничего не запрещаем
+
+    protected static function boot()
     {
-        static::creating(fn ($org) => $org->id ??= (string) Str::uuid());
+        parent::boot();
+
+        static::creating(function ($m) {
+            if (!$m->getKey()) {
+                $m->id = (string) Str::uuid();
+            }
+        });
     }
 }
+

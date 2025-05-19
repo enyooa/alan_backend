@@ -1,172 +1,150 @@
+<!-- eslint-disable vue/no-template-key -->
 <template>
-    <div class="sales-report-page">
-      <h2>Отчет по продажам</h2>
+  <div class="sales-report-page">
+    <h2>Отчёт по продажам</h2>
 
-      <!-- Filters -->
-      <div class="filters">
-        <label>Период c:</label>
-        <input type="date" v-model="startDate" />
-        <label>по:</label>
-        <input type="date" v-model="endDate" />
+    <!-- ▸ Фильтры -->
+    <div class="filters">
+      <label>С даты:</label><input type="date" v-model="dateFrom">
+      <label>по:</label><input type="date" v-model="dateTo">
 
-        <button @click="fetchSalesReport">Сформировать</button>
-        <button @click="exportToPdf">Выгрузить PDF</button>
-        <button @click="exportToExcel">Выгрузить Excel</button>
-      </div>
+      <label>Контрагент:</label>
+      <select v-model="client">
+        <option value="">— все —</option>
+        <option v-for="c in clients" :key="c.id" :value="c.id">{{ c.name }}</option>
+      </select>
 
-      <div v-if="loading" class="loading">
-        Загрузка данных...
-      </div>
-      <div v-else-if="error" class="error">
-        Ошибка: {{ error }}
-      </div>
-      <div v-else>
-        <table class="report-table">
-          <thead>
-            <tr>
-              <th>Товар</th>
-              <th>Количество</th>
-              <th>Сумма продаж</th>
-              <th>Себестоимость</th>
-              <th>Прибыль</th>
-              <th>Дата документа</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, index) in salesData" :key="index">
-              <td>{{ row.product_name }}</td>
-              <td>{{ row.quantity }}</td>
-              <td>{{ row.sale_amount }}</td>
-              <td>{{ row.cost_amount }}</td>
-              <td :class="{'negative-profit': row.profit < 0}">
-                {{ row.profit }}
-              </td>
-              <td>{{ row.doc_date }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <label>Товар:</label>
+      <select v-model="product">
+        <option value="">— все —</option>
+        <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
+      </select>
+
+      <button @click="fetchReport">Сформировать</button>
     </div>
-  </template>
 
-  <script>
-  import axios from "axios";
+    <!-- ▸ Статус -->
+    <div v-if="loading">Загрузка…</div>
+    <div v-else-if="error" class="error">Ошибка: {{ error }}</div>
 
-  export default {
-    name: "SalesReportPage",
-    data() {
-      return {
-        salesData: [],
-        startDate: null,
-        endDate: null,
-        loading: false,
-        error: null,
-      };
+    <!-- ▸ Таблица -->
+    <div v-else>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Контрагент / Товар</th>
+            <th>Ед.</th>
+            <th>Кол-во</th>
+            <th>Сумма продажи</th>
+            <th>Ср. себестоимость</th>
+            <th>Себестоимость (сумма)</th>
+            <th>Прибыль</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <!-- группы -->
+          <template v-for="group in rows">
+            <!-- строка клиента -->
+            <tr :key="'g-'+group.client_id" class="group-row">
+              <td><strong>{{ group.client_name }}</strong></td>
+              <td></td>
+              <td><strong>{{ fmt(group.quantity) }}</strong></td>
+              <td><strong>{{ fmt(group.sale_sum) }}</strong></td>
+              <td></td>
+              <td><strong>{{ fmt(group.cost_sum) }}</strong></td>
+              <td :class="{neg: group.profit<0}">
+                <strong>{{ fmt(group.profit) }}</strong>
+              </td>
+            </tr>
+
+            <!-- товары -->
+            <tr
+              v-for="p in group.products"
+              :key="'p-'+group.client_id+'-'+p.product_id+'-'+p.unit"
+              class="product-row"
+            >
+              <td>— {{ p.product_name }}</td>
+              <td>{{ p.unit }}</td>
+              <td>{{ fmt(p.quantity) }}</td>
+              <td>{{ fmt(p.sale_sum) }}</td>
+              <td>{{ fmt(p.avg_cost) }}</td>
+              <td>{{ fmt(p.cost_sum) }}</td>
+              <td :class="{neg: p.profit<0}">{{ fmt(p.profit) }}</td>
+            </tr>
+          </template>
+
+          <!-- общий итог -->
+          <tr class="total-row">
+            <td><strong>Итого</strong></td>
+            <td></td>
+            <td><strong>{{ fmt(total.quantity) }}</strong></td>
+            <td><strong>{{ fmt(total.sale_sum) }}</strong></td>
+            <td></td>
+            <td><strong>{{ fmt(total.cost_sum) }}</strong></td>
+            <td :class="{neg: total.profit<0}">
+              <strong>{{ fmt(total.profit) }}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>
+
+<script>
+import axios from 'axios';
+
+export default {
+  name: 'SalesReportPage',
+  data() {
+    return {
+      rows: [], total: {quantity:0,sale_sum:0,cost_sum:0,profit:0},
+      dateFrom:'', dateTo:'', client:'', product:'',
+      clients:[], products:[], loading:false, error:null,
+    };
+  },
+  created(){ this.loadDicts(); },
+  methods:{
+    loadDicts(){
+      axios.get('/api/clients').then(r=>this.clients=r.data).catch(()=>{});
+      axios.get('/api/products').then(r=>this.products=r.data).catch(()=>{});
     },
-    methods: {
-      async fetchSalesReport() {
-        this.loading = true;
-        this.error = null;
-        this.salesData = [];
-
-        try {
-          // Build query params if user selected dates
-          const params = {};
-          if (this.startDate && this.endDate) {
-            params.start_date = this.startDate;
-            params.end_date = this.endDate;
-          }
-
-          // Suppose your endpoint is /api/sales-report
-          // If you need auth, pass token in headers
-          const response = await axios.get("/api/sales-report", { params });
-          this.salesData = response.data;
-        } catch (err) {
-          console.error("Error fetching sales data:", err);
-          this.error = err.response?.data?.error || err.message;
-        } finally {
-          this.loading = false;
-        }
-      },
-      exportToPdf() {
-        // Open PDF export in new tab. Make a route /api/sales-report/pdf if needed
-        const params = [];
-        if (this.startDate && this.endDate) {
-          params.push(`start_date=${this.startDate}`);
-          params.push(`end_date=${this.endDate}`);
-        }
-        const queryString = params.length ? "?" + params.join("&") : "";
-        window.open("/api/sales-report/pdf" + queryString, "_blank");
-      },
-      exportToExcel() {
-        // Same idea, if you have an Excel export route
-        const params = [];
-        if (this.startDate && this.endDate) {
-          params.push(`start_date=${this.startDate}`);
-          params.push(`end_date=${this.endDate}`);
-        }
-        const queryString = params.length ? "?" + params.join("&") : "";
-        window.open("/api/sales-report/excel" + queryString, "_blank");
-      },
+    fetchReport(){
+      this.loading=true; this.error=null;
+      axios.get('/api/report-sales',{params:{
+        date_from:this.dateFrom||null,
+        date_to:  this.dateTo  ||null,
+        client:   this.client  ||null,
+        product:  this.product ||null,
+      }}).then(r=>{
+        this.rows = r.data.data; this.total = r.data.total;
+      }).catch(e=>{
+        this.error = e.response?.data?.message || e.message;
+      }).finally(()=>{ this.loading=false; });
     },
-  };
-  </script>
+    /* 1 знак после запятой */
+    fmt(v){
+      if(v===null||v===undefined) return '—';
+      return (+v).toLocaleString('ru-RU',{minimumFractionDigits:1, maximumFractionDigits:1});
+    },
+  }
+};
+</script>
 
-  <style scoped>
-  .sales-report-page {
-    max-width: 1000px;
-    margin: 0 auto;
-  }
+<style scoped>
+.sales-report-page{max-width:1200px;margin:0 auto;}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.filters select,.filters input[type='date']{padding:4px 6px;}
+.filters button{padding:6px 12px;background:#0288d1;color:#fff;border:none;cursor:pointer;}
+.filters button:hover{background:#0277bd;}
 
-  .filters {
-    margin-bottom: 16px;
-  }
-
-  .filters label {
-    margin-right: 4px;
-  }
-
-  .filters input {
-    margin-right: 8px;
-  }
-
-  .filters button {
-    margin-right: 8px;
-    padding: 6px 12px;
-    background-color: #0288d1;
-    color: white;
-    border: none;
-    cursor: pointer;
-  }
-
-  .filters button:hover {
-    background-color: #0277bd;
-  }
-
-  .report-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 12px;
-  }
-
-  .report-table thead th {
-    background-color: #0288d1;
-    color: #fff;
-  }
-
-  .report-table th,
-  .report-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
-  }
-
-  .negative-profit {
-    color: red;
-    font-weight: bold;
-  }
-  .error {
-    color: red;
-    margin-top: 10px;
-  }
-  </style>
+.report-table{width:100%;border-collapse:collapse;}
+.report-table th,.report-table td{border:1px solid #ccc;padding:6px 8px;}
+.report-table thead th{background:#0288d1;color:#fff;}
+.group-row{background:#f1f1f1;}
+.product-row td:first-child{padding-left:24px;}
+.total-row{background:#e0e0e0;font-weight:700;}
+.neg{color:red;}
+.error{color:red;margin-top:10px;}
+</style>

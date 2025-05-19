@@ -189,6 +189,8 @@ class FinancialSummaryController extends Controller
         'range'   => ['from'=>$from->toDateString(), 'to'=>$to->toDateString()],
         'details' => $details,
         'total'   => $total,
+        'costprice' => 1,
+        'profit' =>2,
     ]);
 }
 

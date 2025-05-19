@@ -1,383 +1,259 @@
+<!-- resources/js/components/operations/WarehouseWriteOff.vue -->
 <template>
-  <div class="write-off-page-container">
-    <h2 class="page-title">Списание (со склада)</h2>
+    <div class="write-off-page-container">
+      <h2 class="page-title">Списание (со склада)</h2>
 
-    <!-- Card: От какого склада / Дата -->
-    <div class="card">
-      <div class="card-header">
-        <h3>Склад и дата списания</h3>
-      </div>
-      <div class="card-body">
-        <div class="top-row">
-          <!-- Откуда (Warehouse) -->
+      <!-- Шапка: склад + дата -->
+      <div class="card">
+        <div class="card-header"><h3>Склад и дата списания</h3></div>
+        <div class="card-body top-row">
+          <!-- склад -->
           <div class="dropdown-column">
-            <label class="dropdown-label">Откуда (Склад):</label>
-            <select
-              v-model="selectedSourceWarehouse"
-              class="dropdown-select"
-              @change="onSourceWarehouseChange"
-            >
+            <label class="dropdown-label">Откуда (склад)</label>
+            <select v-model="warehouseId"
+                    class="dropdown-select"
+                    @change="loadLeftovers">
               <option value="">— выберите склад —</option>
-              <option
-                v-for="wh in warehouses"
-                :key="wh.id"
-                :value="wh.id"
-              >
-                {{ wh.name }}
+              <option v-for="w in warehouses" :key="w.id" :value="w.id">
+                {{ w.name }}
               </option>
             </select>
           </div>
 
-          <!-- Дата -->
+          <!-- дата -->
           <div class="dropdown-column">
-            <label class="dropdown-label">Дата:</label>
-            <input
-              type="date"
-              v-model="selectedDate"
-              class="dropdown-select"
-            />
+            <label class="dropdown-label">Дата</label>
+            <input type="date" v-model="docDate" class="dropdown-select">
           </div>
         </div>
       </div>
+
+      <!-- две карточки -->
+      <div class="cards-container mt-3">
+
+        <!-- левая: строки списания -->
+        <div class="card card-writeoff">
+          <div class="card-header flex-between">
+            <h3>Товары к списанию</h3>
+            <button class="action-btn" @click="addRow">➕ строка</button>
+          </div>
+
+          <div class="card-body">
+            <table class="styled-table">
+              <thead>
+                <tr>
+                  <th>Партия (остаток)</th>
+                  <th>Кол-во</th>
+                  <th>Ед. изм</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr v-for="(r, i) in rows" :key="r._k">
+                  <!-- партия -->
+                  <td>
+                    <select v-model="r._selected"
+                            class="table-select"
+                            @change="onBatchSelect(r)">
+                      <option value="">— партия —</option>
+                      <option v-for="b in leftoversForSelect"
+                              :key="b.key"
+                              :value="b.key">
+                        {{ b.label }}
+                      </option>
+                    </select>
+                  </td>
+
+                  <!-- qty -->
+                  <td>
+                    <input  type="number"
+                            class="table-input"
+                            min="0"
+                            :max="r.maxBalance"
+                            v-model.number="r.quantity"
+                            @change="onQtyChange(r)">
+                  </td>
+
+                  <!-- unit (только для чтения) -->
+                  <td>
+                    <input class="table-input readonly"
+                           :value="r.unit_measurement"
+                           readonly>
+                  </td>
+
+                  <!-- delete -->
+                  <td>
+                    <button class="remove-btn" @click="rows.splice(i,1)">❌</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-2">
+            <button class="action-btn save-btn"
+                    :disabled="submitting"
+                    @click="save">
+              {{ submitting ? '⏳…' : '💾 Сохранить' }}
+            </button>
+          </div>
+
+          <div v-if="msg" :class="['feedback-message', msgType]">{{ msg }}</div>
+        </div>
+
+        <!-- правая: остатки -->
+        <div class="card card-leftovers">
+          <div class="card-header">
+            <h3>Остатки ({{ whName }})</h3>
+          </div>
+          <div class="card-body">
+            <table class="styled-table">
+              <thead><tr><th>Товар</th><th>Остаток</th></tr></thead>
+              <tbody>
+                <tr v-for="l in leftovers"
+                    :key="l.product_subcard_id + l.unit_measurement">
+                  <td>{{ l.name }}</td>
+                  <td>{{ format(l.balance) }} {{ l.unit_measurement }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /cards-container -->
     </div>
+  </template>
 
-    <!-- Two cards: Left for writing off items, right for leftover info -->
-    <div class="cards-container mt-3">
-      <!-- Left card: items to be written off -->
-      <div class="card card-writeoff">
-        <div class="card-header flex-between">
-          <h3>Товары для Списания</h3>
-          <button class="action-btn" @click="addProductRow">
-            ➕ Добавить строку
-          </button>
-        </div>
-        <div class="card-body">
-          <table class="styled-table">
-            <thead>
-              <tr>
-                <th>Товар (ост.)</th>
-                <th>Кол-во</th>
-                <th>Ед. изм</th>
-                <th>Удалить</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(row, idx) in productRows"
-                :key="row._key"
-              >
-                <!-- Dropdown of leftover items from the selected warehouse -->
-                <td>
-                  <select
-                    v-model="row.product_subcard_id"
-                    class="table-select"
-                    @change="onProductChange(row)"
-                  >
-                    <option disabled value="">
-                      — Товар —
-                    </option>
-                    <option
-                      v-for="left in leftovers"
-                      :key="left.product_subcard_id"
-                      :value="left.product_subcard_id"
-                    >
-                      {{ left.name }} ({{ formatNumber(left.balance) }})
-                    </option>
-                  </select>
-                </td>
+  <script>
+  import axios from '@/plugins/axios'
+  import { ref, computed, onMounted } from 'vue'
 
-                <!-- Кол-во списания -->
-                <td>
-                  <input
-                    type="number"
-                    class="table-input"
-                    v-model.number="row.quantity"
-                    @change="onQuantityChange(row)"
-                  />
-                </td>
+  export default {
+  name:'WarehouseWriteOff',
+  setup(){
 
-                <!-- Ед. изм -->
-                <td>
-                  <select
-                    v-model="row.unit_measurement"
-                    class="table-select"
-                  >
-                    <option disabled value="">—</option>
-                    <option
-                      v-for="u in units"
-                      :key="u.id"
-                      :value="u.name"
-                    >
-                      {{ u.name }}
-                    </option>
-                  </select>
-                </td>
+  /* ─── справочники ─── */
+  const warehouses = ref([])
+  const leftovers  = ref([])
 
-                <!-- Remove button -->
-                <td>
-                  <button class="remove-btn" @click="removeProductRow(idx)">
-                    ❌
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <!-- Save button & message -->
-        <div class="mt-2">
-          <button class="action-btn save-btn" @click="saveWriteOff">
-            Сохранить списание
-          </button>
-        </div>
-        <div v-if="message" :class="['feedback-message', messageType]">
-          {{ message }}
-        </div>
-      </div>
+  /* ─── выбранные ─── */
+  const warehouseId = ref('')
+  const docDate     = ref('')
 
-      <!-- Right card: leftover info for the selected warehouse -->
-      <div class="card card-leftovers">
-        <div class="card-header">
-          <h3>Остатки на складе "{{ sourceWarehouseName }}"</h3>
-        </div>
-        <div class="card-body">
-          <table class="styled-table">
-            <thead>
-              <tr>
-                <th>Товар</th>
-                <th>Остаток</th>
-                <th>Ед. изм</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="left in leftovers" :key="left.product_subcard_id">
-                <td>{{ left.name }}</td>
-                <td>{{ formatNumber(left.balance) }}</td>
-                <td>{{ left.unit_measurement || '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div><!-- cards-container -->
-  </div>
-</template>
-
-<script>
-import axios from "axios";
-import { ref, onMounted, computed } from "vue";
-
-export default {
-  name: "WarehouseWriteOffPage",
-  setup() {
-    // 1) Warehouses for "from which warehouse" selection
-    const warehouses = ref([]);
-
-    // 2) Leftovers from the selected warehouse
-    const leftovers = ref([]);
-
-    // 3) Units
-    const units = ref([]);
-
-    // 4) Selected warehouse & date
-    const selectedSourceWarehouse = ref("");
-    const selectedDate = ref("");
-
-    // 5) productRows
-    const productRows = ref([
-      {
-        _key: Date.now(),
-        product_subcard_id: "",
-        quantity: 0,
-        unit_measurement: ""
-      }
-    ]);
-
-    // Feedback
-    const message = ref("");
-    const messageType = ref("");
-
-    // Formatting function to remove trailing zeros like 10.000 -> 10
-    function formatNumber(value) {
-      if (value === null || value === undefined) return "";
-      const num = Number(value);
-      if (Number.isNaN(num)) return value; // not a valid number
-
-      // If effectively an integer, show no decimals
-      if (Number.isInteger(num)) {
-        return num.toString();
-      }
-      // Otherwise, show up to 3 decimals. Then remove trailing zeros by converting to float again.
-      return parseFloat(num.toFixed(3)).toString();
-    }
-
-    // Computed: name of the selected warehouse
-    const sourceWarehouseName = computed(() => {
-      if (!selectedSourceWarehouse.value) return "—";
-      const found = warehouses.value.find(w => w.id == selectedSourceWarehouse.value);
-      if (!found) return "???";
-      return found.name;
-    });
-
-    // On mount
-    onMounted(() => {
-      fetchWarehouses();
-      fetchUnits();
-    });
-
-    // Fetch warehouses
-    async function fetchWarehouses() {
-      try {
-        const resp = await axios.get("/api/getWarehouses");
-        warehouses.value = resp.data;
-      } catch (err) {
-        console.error("Ошибка при загрузке складов:", err);
-      }
-    }
-
-    // Fetch units
-    async function fetchUnits () {
-  const { data } = await axios.get('/api/reference/unit')
-  units.value = data.map(u => ({
-    id: u.id,
-    name: u.name,
-    tare: Number(u.value) || 0
-  }))
-}
-
-    // When user selects a warehouse, load leftovers from `warehouse_items`
-    async function onSourceWarehouseChange() {
-      if (!selectedSourceWarehouse.value) {
-        leftovers.value = [];
-        return;
-      }
-      try {
-        // e.g. GET /api/warehouse-items?warehouse_id=XXX
-        const resp = await axios.get("/api/warehouse-items", {
-          params: { warehouse_id: selectedSourceWarehouse.value }
-        });
-        leftovers.value = resp.data;
-      } catch (err) {
-        console.error("Ошибка при загрузке остатков:", err);
-      }
-    }
-
-    // Add/remove row
-    function addProductRow() {
-      productRows.value.push({
-        _key: Date.now() + Math.random(),
-        product_subcard_id: "",
-        quantity: 0,
-        unit_measurement: ""
-      });
-    }
-    function removeProductRow(idx) {
-      productRows.value.splice(idx,1);
-    }
-
-    // Reset quantity / unit when product changes
-    function onProductChange(row) {
-      row.quantity = 0;
-      row.unit_measurement = "";
-    }
-
-    // Ensure we don't exceed leftover stock
-    function onQuantityChange(row) {
-      const maxQty = getBalance(row.product_subcard_id);
-      if (row.quantity > maxQty) {
-        alert(`Нельзя списать больше, чем ${maxQty}.`);
-        row.quantity = maxQty;
-      }
-    }
-    function getBalance(product_subcard_id) {
-      const item = leftovers.value.find(l => l.product_subcard_id === product_subcard_id);
-      return item ? item.balance : 0;
-    }
-
-    // Save write-off
-    async function saveWriteOff() {
-      // Basic validations
-      if (!selectedSourceWarehouse.value) {
-        alert("Укажите склад, с которого списываем");
-        return;
-      }
-      if (!selectedDate.value) {
-        alert("Укажите дату списания");
-        return;
-      }
-      if (!productRows.value.length) {
-        alert("Нет ни одной строки для списания");
-        return;
-      }
-
-      // Build items payload
-      const items = productRows.value.map(r => ({
-        product_subcard_id: r.product_subcard_id,
-        quantity: r.quantity,
-        unit_measurement: r.unit_measurement
-      }));
-
-      try {
-        // e.g. POST /api/writeoff/store
-        await axios.post("/api/writeoff/store", {
-          warehouse_id: selectedSourceWarehouse.value,
-          document_date: selectedDate.value,
-          items
-        });
-
-        message.value = "Списание успешно сохранено!";
-        messageType.value = "success";
-
-        // Reset
-        selectedSourceWarehouse.value = "";
-        selectedDate.value = "";
-        productRows.value = [
-          {
-            _key: Date.now(),
-            product_subcard_id: "",
-            quantity: 0,
-            unit_measurement: ""
-          }
-        ];
-        leftovers.value = [];
-      } catch (err) {
-        console.error("Ошибка при сохранении списания:", err);
-        message.value = "Ошибка при сохранении списания.";
-        messageType.value = "error";
-      }
-    }
-
+  /* ─── строки ─── */
+  function makeRow () {
     return {
-      // State
-      warehouses,
-      leftovers,
-      units,
-      selectedSourceWarehouse,
-      selectedDate,
-      productRows,
-      message,
-      messageType,
+      _k              : Date.now()+Math.random(),
+      _selected       : '',
+      product_subcard_id : '',
+      unit_measurement   : '',
+      maxBalance      : 0,
+      quantity        : 0
+    }
+  }
+  const rows = ref([makeRow()])
 
-      // Computed
-      sourceWarehouseName,
+  /* ─── computed ─── */
+  const whName = computed(()=> warehouses.value.find(w=>w.id===warehouseId.value)?.name || '—')
 
-      // Methods
-      fetchWarehouses,
-      fetchUnits,
-      onSourceWarehouseChange,
-      addProductRow,
-      removeProductRow,
-      onProductChange,
-      onQuantityChange,
-      getBalance,
-      saveWriteOff,
+  const leftoversForSelect = computed(()=> leftovers.value.map(l=>({
+    key     : l.product_subcard_id + '|' + l.unit_measurement,
+    label   : `${l.name} ▸ ${format(l.balance)} ${l.unit_measurement}`,
+    ...l
+  })) )
 
-      // The format function
-      formatNumber,
-    };
-  },
-};
-</script>
+  /* ─── helpers ─── */
+  const format = v => (+v).toFixed(3).replace(/\.?0+$/, '')
+
+  /* ─── fetch ─── */
+  onMounted(async()=>{
+    const { data } = await axios.get('/api/getWarehouses')
+    warehouses.value = data
+  })
+
+  async function loadLeftovers(){
+    leftovers.value=[]
+    if(!warehouseId.value) return
+    const { data } = await axios.get('/api/warehouse-items',
+                                     { params:{ warehouse_id: warehouseId.value }})
+    leftovers.value = data
+  }
+
+  /* ─── UI actions ─── */
+  const addRow = ()=> rows.value.push(makeRow())
+
+  function onBatchSelect(row){
+    const found = leftoversForSelect.value.find(b=>b.key===row._selected)
+    if(!found) return
+    row.product_subcard_id = found.product_subcard_id
+    row.unit_measurement   = found.unit_measurement
+    row.maxBalance         = +found.balance
+    row.quantity           = 0
+  }
+
+  function onQtyChange(row){
+    if(row.quantity > row.maxBalance){
+      alert(`Нельзя списать больше, чем ${format(row.maxBalance)}.`)
+      row.quantity = row.maxBalance
+    }
+  }
+
+  /* ─── save ─── */
+  const submitting = ref(false)
+  const msg = ref(''), msgType = ref('')
+
+  async function save(){
+    if(!warehouseId.value || !docDate.value){
+      alert('Укажите склад и дату'); return
+    }
+    if(!rows.value.every(r=>r.product_subcard_id && r.unit_measurement && r.quantity>0)){
+      alert('Заполните все строки корректно'); return
+    }
+
+    submitting.value = true
+    try{
+      await axios.post('/api/writeoff/store',{
+        warehouse_id  : warehouseId.value,
+        document_date : docDate.value,
+        items         : rows.value.map(r=>({
+          product_subcard_id : r.product_subcard_id,
+          unit_measurement   : r.unit_measurement,
+          quantity           : r.quantity
+        }))
+      })
+
+      msg.value='Списание сохранено'
+      msgType.value='success'
+
+      /* reset */
+      rows.value=[makeRow()]
+      loadLeftovers()
+
+    }catch(e){
+      console.error(e)
+      msg.value = e.response?.data?.error || 'Ошибка'
+      msgType.value='error'
+    }finally{
+      submitting.value=false
+      setTimeout(()=>msg.value='',3000)
+    }
+  }
+
+  return{
+    /* state */
+    warehouses, leftovers, warehouseId, docDate, rows,
+    /* computed */
+    whName, leftoversForSelect, format,
+    /* methods */
+    loadLeftovers, addRow, onBatchSelect, onQtyChange, save,
+    /* ui feedback */
+    submitting, msg, msgType
+  }
+  }
+  }
+  </script>
+
 
 <style scoped>
 .write-off-page-container {

@@ -4,32 +4,45 @@
       <main class="content">
         <h2 class="page-title">Продажа</h2>
 
-        <!-- ▸ карточка выбора клиента / даты / склада-отгрузки -->
+        <!-- ▸ Шапка -->
         <div class="card">
           <div class="card-header"><h3>Покупатель, дата, склад-отгрузки</h3></div>
           <div class="card-body flex-row">
-            <!-- клиент / организация -->
+
+            <!-- контрагент (клиент или организация) -->
             <div class="dropdown">
-              <label class="field-label" for="customer">Покупатель / Организация</label>
-              <select v-model="selectedCustomerId" id="customer" class="dropdown-select">
-                <option disabled value="">— Выберите —</option>
-                <option v-for="c in customers" :key="c.id" :value="c.id">
-                  {{ c.name }}
+              <label class="field-label">Кому продаём</label>
+              <select
+                class="dropdown-select"
+                :value="selectedCounterpartyId"
+                @change="onCounterpartySelect($event.target.value)"
+              >
+                <option value="">— выберите —</option>
+                <option
+                  v-for="c in counterparties"
+                  :key="c.id"
+                  :value="c.id"
+                >
+                  {{ c.name }} ({{ typeRu(c.type) }})
                 </option>
               </select>
             </div>
 
             <!-- дата -->
             <div class="dropdown">
-              <label class="field-label" for="date">Дата продажи</label>
-              <input type="date" v-model="selectedDate" id="date" class="dropdown-select" />
+              <label class="field-label">Дата продажи</label>
+              <input type="date" v-model="docDate" class="dropdown-select" />
             </div>
 
-            <!-- склад-отгрузки -->
+            <!-- склад -->
             <div class="dropdown">
-              <label class="field-label" for="wh">Склад-отгрузки</label>
-              <select v-model="selectedWarehouseId" id="wh" class="dropdown-select">
-                <option disabled value="">— Выберите склад —</option>
+              <label class="field-label">Склад-отгрузки</label>
+              <select
+                v-model="warehouseId"
+                class="dropdown-select"
+                @change="loadLeftovers"
+              >
+                <option value="">— склад —</option>
                 <option v-for="w in warehouses" :key="w.id" :value="w.id">
                   {{ w.name }}
                 </option>
@@ -38,375 +51,299 @@
           </div>
         </div>
 
-        <!-- ▸ таблица товаров -->
-        <div class="card mt-3">
-          <div class="card-header flex-between">
-            <h3>Товары</h3>
-            <button class="action-btn add-row-btn" @click="addProductRow">➕ Добавить строку</button>
+        <!-- ▸ Две карточки: продажа + остатки -->
+        <div class="cards-container mt-3">
+
+          <!-- левая: таблица продажи -->
+          <div class="card card-sale">
+            <div class="card-header flex-between">
+              <h3>Товары</h3>
+              <button class="action-btn add-row-btn" @click="addRow">➕ строка</button>
+            </div>
+
+            <div class="card-body">
+              <table class="styled-table">
+                <thead>
+                  <tr>
+                    <th>Товар / партия (остаток)</th><th>Кол-во тары</th>
+                    <th>Ед. изм</th><th>Брутто</th><th>Нетто</th>
+                    <th>Цена</th><th>Сумма</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r,i) in rows" :key="r._k">
+                    <!-- партия -->
+                    <td>
+                      <select
+                        class="table-select"
+                        v-model="r._selected"
+                        @change="onBatchSelect(r)"
+                      >
+                        <option value="">— партия —</option>
+                        <option
+                          v-for="b in leftoversForSelect"
+                          :key="b.key"
+                          :value="b.key"
+                        >
+                          {{ b.label }}
+                        </option>
+                      </select>
+                    </td>
+
+                    <!-- qtyTare -->
+                    <td>
+                      <input
+                        type="number" min="0" :max="r.balance"
+                        v-model.number="r.qtyTare"
+                        class="table-input"
+                      />
+                    </td>
+
+                    <!-- unit -->
+                    <td>
+                      <input
+                        class="table-input readonly"
+                        :value="r.product.unit_measurement"
+                        readonly
+                      />
+                    </td>
+
+                    <!-- brutto -->
+                    <td><input type="number" min="0" v-model.number="r.brutto" class="table-input" /></td>
+                    <!-- netto -->
+                    <td>{{ netto(r).toFixed(3) }}</td>
+                    <!-- price -->
+                    <td><input type="number" min="0" step="0.01" v-model.number="r.price" class="table-input" /></td>
+                    <!-- total -->
+                    <td>{{ total(r).toFixed(2) }}</td>
+                    <!-- delete -->
+                    <td><button class="remove-btn" @click="rows.splice(i,1)">❌</button></td>
+                  </tr>
+
+                  <!-- итог -->
+                  <tr class="summary-row">
+                    <td colspan="4" class="summary-label"><strong>ИТОГО</strong></td>
+                    <td>{{ totalNetto.toFixed(3) }}</td><td>-</td>
+                    <td>{{ totalSum.toFixed(2) }}</td><td>-</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div class="card-body">
-            <table class="styled-table">
-              <thead>
-                <tr>
-                  <th>Товар</th><th>Кол-во тары</th><th>Ед. изм / Тара</th>
-                  <th>Брутто</th><th>Нетто</th><th>Цена</th><th>Сумма</th><th>Удалить</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr v-for="(row, idx) in productRows" :key="row._key">
-                  <!-- товар -->
-                  <td>
-                    <select v-model="row.product_subcard_id" class="table-select">
-                      <option disabled value="">Выберите товар</option>
-                      <option v-for="p in products" :key="p.id" :value="p.id">
-                        {{ p.name }}
-                      </option>
-                    </select>
-                  </td>
-
-                  <!-- кол-во -->
-                  <td><input v-model.number="row.quantity" type="number" class="table-input" /></td>
-
-                  <!-- единица -->
-                  <td>
-                    <select v-model="row.unit_measurement" class="table-select">
-                      <option disabled value="">—</option>
-                      <option v-for="u in units" :key="u.id" :value="u.name">
-                        {{ u.name }} ({{ u.tare }} г)
-                      </option>
-                    </select>
-                  </td>
-
-                  <!-- брутто -->
-                  <td><input v-model.number="row.brutto" type="number" class="table-input" /></td>
-
-                  <!-- нетто -->
-                  <td>{{ calcNetto(row).toFixed(2) }}</td>
-
-                  <!-- цена -->
-                  <td><input v-model.number="row.price" type="number" class="table-input" /></td>
-
-                  <!-- сумма -->
-                  <td>{{ calcTotal(row).toFixed(2) }}</td>
-
-                  <!-- удалить -->
-                  <td><button class="remove-btn" @click="removeProductRow(idx)">❌</button></td>
-                </tr>
-
-                <!-- итог -->
-                <tr class="summary-row">
-                  <td colspan="4" class="summary-label"><strong>ИТОГО</strong></td>
-                  <td>{{ totalNetto.toFixed(2) }}</td>
-                  <td>-</td>
-                  <td>{{ totalSum.toFixed(2) }}</td>
-                  <td>-</td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- правая: остатки -->
+          <div class="card card-leftovers">
+            <div class="card-header"><h3>Остатки ({{ whName }})</h3></div>
+            <div class="card-body">
+              <table class="styled-table">
+                <thead><tr><th>Товар</th><th>Остаток</th></tr></thead>
+                <tbody>
+                  <tr
+                    v-for="l in leftovers"
+                    :key="l.product_subcard_id + l.unit_measurement"
+                  >
+                    <td>{{ l.name }}</td>
+                    <td>{{ format(l.balance) }} {{ l.unit_measurement }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        </div><!-- /cards-container -->
 
-        <!-- ▸ сохранить -->
+        <!-- сохранить -->
         <div class="mt-3">
-          <button class="action-btn save-btn" :disabled="isSubmitting" @click="submitSale">
-            {{ isSubmitting ? "⏳ Сохранение…" : "Сохранить" }}
+          <button
+            class="action-btn save-btn"
+            :disabled="submitting"
+            @click="save"
+          >
+            {{ submitting ? '⏳…' : '💾 Сохранить' }}
           </button>
         </div>
 
-        <div v-if="message" :class="['feedback-message', messageType]">{{ message }}</div>
+        <div v-if="msg" :class="['feedback-message', msgType]">{{ msg }}</div>
       </main>
     </div>
   </template>
 
   <script setup>
-  import { ref, onMounted, computed } from 'vue'
-  import axios from 'axios'
+  import { ref, computed, onMounted } from 'vue'
+  import axios from '@/plugins/axios'
 
-  /* ───────────────────── state ───────────────────── */
-  const selectedCustomerId  = ref('')
-  const selectedDate        = ref('')
-  const selectedWarehouseId = ref('')
+  /* ─────────── справочники ─────────── */
+  const counterparties = ref([])
+  const warehouses     = ref([])
+  const products       = ref([])
+  const units          = ref([])
 
-  const customers  = ref([])   // клиенты / организации
-  const warehouses = ref([])
-  const products   = ref([])
-  const units      = ref([])
+  /* ─────────── выборы ─────────── */
+  const clientId       = ref('')   // ID клиента-покупателя
+  const organizationId = ref('')   // ID организации-покупателя
+  const docDate        = ref('')
+  const warehouseId    = ref('')
 
-  const productRows = ref([makeEmptyRow()])
+  /* текущее значение select-а */
+  const selectedCounterpartyId = computed(() => clientId.value || organizationId.value)
 
-  function makeEmptyRow () {
+  /* ─────────── остатки ─────────── */
+  const leftovers  = ref([])
+  const whName = computed(() =>
+    warehouses.value.find(w => w.id === warehouseId.value)?.name || '—'
+  )
+
+  function loadLeftovers () {
+    leftovers.value = []
+    if (!warehouseId.value) return
+    axios.get('/api/warehouse-items', { params:{ warehouse_id: warehouseId.value } })
+         .then(r => leftovers.value = r.data)
+  }
+
+  const leftoversForSelect = computed(() => leftovers.value.map(l => ({
+    key  : l.product_subcard_id + '|' + l.unit_measurement,
+    label: `${l.name} ▸ ${format(l.balance)} ${l.unit_measurement}`,
+    ...l
+  })))
+
+  /* ─────────── строки таблицы ─────────── */
+  function makeRow () {
     return {
-      _key               : Date.now() + Math.random(),
-      product_subcard_id : '',
-      unit_measurement   : '',
-      quantity           : 0,
-      brutto             : 0,
-      price              : 0
+      _k       : Date.now() + Math.random(),
+      _selected: '',
+      product  : { product_subcard_id:'', unit_measurement:'' },
+      balance  : 0,
+      qtyTare  : 0,
+      brutto   : 0,
+      price    : 0
     }
   }
+  const rows = ref([makeRow()])
+  const addRow = () => rows.value.push(makeRow())
 
-  /* ───────────────────── fetchers ────────────────── */
-  const fetchCustomers = async () => {
-    const { data } = await axios.get('/api/reference/client')   // ← ваш энд-поинт
-    customers.value = data
-  }
-  const fetchWarehouses = async () => {
-    const { data } = await axios.get('/api/getWarehouses')
-    warehouses.value = data
-  }
-  const fetchProducts = async () => {
-    const { data } = await axios.get('/api/reference/subproductCard')
-    products.value = data
-  }
-  const fetchUnits = async () => {
-    const { data } = await axios.get('/api/reference/unit')
-    units.value = data.map(u => ({ id:u.id, name:u.name, tare:Number(u.tare)||0 }))
+  function onBatchSelect (row) {
+    const found = leftoversForSelect.value.find(b => b.key === row._selected)
+    if (!found) return
+    row.product.product_subcard_id = found.product_subcard_id
+    row.product.unit_measurement   = found.unit_measurement
+    row.balance = +found.balance
+    row.qtyTare = 0
+    row.brutto  = 0
   }
 
+  /* ─────────── fetch on mount ─────────── */
   onMounted(() => Promise.all([
-    fetchCustomers(), fetchWarehouses(), fetchProducts(), fetchUnits()
+    axios.get('/api/counterparty').then(r => counterparties.value = r.data),
+    axios.get('/api/getWarehouses').then(r => warehouses.value = r.data),
+    axios.get('/api/reference/subproductCard').then(r => products.value = r.data),
+    axios.get('/api/reference/unit')
+         .then(r => units.value = r.data.map(u => ({
+           id:u.id, name:u.name, tare:+u.value||0
+         })))
   ]))
 
-  /* ───────────────────── helpers ─────────────────── */
-  const addProductRow    = () => productRows.value.push(makeEmptyRow())
-  const removeProductRow = idx => productRows.value.splice(idx,1)
-
-  const calcNetto = r => {
-    const u = units.value.find(x => x.name === r.unit_measurement) || { tare:0 }
-    return (r.brutto||0) - (r.quantity||0)*(u.tare/1000)
+  /* ─────────── расчёты ─────────── */
+  const isKg = n => /кг|килограмм/i.test(n || '')
+  function netto (r) {
+    const u = units.value.find(x => x.name === r.product.unit_measurement) || { tare:0 }
+    return isKg(u.name)
+      ? (+r.brutto || 0)
+      : (+r.brutto || 0) - (+r.qtyTare || 0) * (u.tare / 1000)
   }
-  const calcTotal = r => calcNetto(r) * (r.price||0)
+  const total      = r => netto(r) * (+r.price || 0)
+  const totalNetto = computed(() => rows.value.reduce((s,r) => s + netto(r), 0))
+  const totalSum   = computed(() => rows.value.reduce((s,r) => s + total(r), 0))
+  const format     = v => (+v).toFixed(3).replace(/\.?0+$/,'')
+  const typeRu     = t => t === 'client' ? 'клиент' : t === 'provider' ? 'поставщик' : 'организация'
 
-  const totalNetto = computed(() => productRows.value.reduce((s,r)=>s+calcNetto(r),0))
-  const totalSum   = computed(() => productRows.value.reduce((s,r)=>s+calcTotal(r),0))
+  /* ─────────── контрагент выбран ─────────── */
+  function onCounterpartySelect (id) {
+    clientId.value       = ''
+    organizationId.value = ''
+    const found = counterparties.value.find(c => c.id === id)
+    if (!found) return
+    if (found.type === 'client')       clientId.value       = found.id
+    if (found.type === 'organization') organizationId.value = found.id
+  }
 
-  /* ───────────────────── save ────────────────────── */
-  const isSubmitting = ref(false)
-  const message      = ref('')
-  const messageType  = ref('')
-
-  async function submitSale () {
-    isSubmitting.value = true
-    try {
-      const payload = {
-        customer_id : selectedCustomerId.value,
-        document_date : selectedDate.value,
-        warehouse_id  : selectedWarehouseId.value,
-        products: productRows.value.map(r => ({
-          product_subcard_id : r.product_subcard_id,
-          unit_measurement   : r.unit_measurement,
-          quantity           : r.quantity,
-          brutto             : r.brutto,
-          netto              : calcNetto(r),
-          price              : r.price,
-          total_sum          : calcTotal(r)
-        }))
+  /* ─────────── сохранение ─────────── */
+  const submitting = ref(false)
+  const msg = ref(''), msgType = ref('')
+  async function save () {
+    if (!selectedCounterpartyId.value || !warehouseId.value || !docDate.value) {
+      alert('Заполните покупателя, склад и дату'); return
+    }
+    for (const r of rows.value) {
+      if (r.qtyTare > r.balance) {
+        alert('Количество превышает остаток по одной из партий'); return
       }
-
-      await axios.post('/api/saleBulkStore', payload)   // ← смените URL при необходимости
-      message.value = 'Продажа успешно сохранена!'
-      messageType.value = 'success'
-
-      /* reset form */
-      selectedCustomerId.value  = ''
-      selectedDate.value        = ''
-      selectedWarehouseId.value = ''
-      productRows.value = [makeEmptyRow()]
     }
-    catch (e) {
+
+    submitting.value = true
+    try {
+      await axios.post('/api/sales-products-web', {
+        client_id            : clientId.value || undefined,
+        to_organization_id   : organizationId.value || undefined,
+        assigned_warehouse_id: warehouseId.value,
+        docDate              : docDate.value,
+        products: rows.value.map(r => ({
+          product: {
+            product_subcard_id : r.product.product_subcard_id,
+            unit_measurement   : r.product.unit_measurement
+          },
+          qtyTare  : r.qtyTare,
+          brutto   : r.brutto,
+          netto    : netto(r),
+          price    : r.price,
+          total_sum: total(r)
+        }))
+      })
+      msg.value = 'Сохранено'; msgType.value = 'success'
+      rows.value = [makeRow()]; loadLeftovers()
+    } catch (e) {
       console.error(e)
-      message.value = 'Ошибка при сохранении.'
-      messageType.value = 'error'
+      msg.value = 'Ошибка: ' + (e.response?.data?.error || 'неизвестно')
+      msgType.value = 'error'
+    } finally {
+      submitting.value = false
+      setTimeout(() => (msg.value = ''), 3000)
     }
-    finally { isSubmitting.value = false }
   }
   </script>
 
 
-<style scoped>
-/* Full Page Container */
-.full-page {
-  width: 100vw;
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
 
-/* Content */
-.content {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 20px;
-}
+  <style scoped>
+  /* базовые стили */
+  .full-page{width:100vw;min-height:100vh;background:#f5f5f5}
+  .content{max-width:1100px;margin:0 auto;padding:20px}
+  .page-title{text-align:center;color:#0288d1;margin-bottom:20px;font-size:1.5rem}
 
-.page-title {
-  color: #0288d1;
-  text-align: center;
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-}
+  .card{background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);margin-bottom:20px;overflow:hidden}
+  .card-header{background:#f1f1f1;padding:12px 16px;border-bottom:1px solid #ddd}
+  .card-body{padding:16px}
+  .flex-row{display:flex;gap:20px;flex-wrap:wrap}
 
-/* Cards */
-.card {
-  background-color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  margin-bottom: 20px;
-  overflow: hidden;
-}
+  .dropdown{display:flex;flex-direction:column;gap:6px;min-width:220px}
+  .field-label{font-weight:bold;color:#555}
+  .dropdown-select{padding:12px;border:1px solid #ddd;border-radius:6px;font-size:14px}
 
-.card-header {
-  background-color: #f1f1f1;
-  padding: 12px 16px;
-  border-bottom: 1px solid #ddd;
-}
+  .cards-container{display:flex;gap:20px}
+  .card-sale{flex:2}.card-leftovers{flex:1}
 
-.card-header h3 {
-  margin: 0;
-  color: #333;
-}
+  .styled-table{width:100%;border-collapse:collapse}
+  .styled-table th,.styled-table td{border:1px solid #ddd;padding:8px;text-align:center}
+  .styled-table thead{background:#0288d1;color:#fff}
+  .table-select,.table-input{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+  .table-input.readonly{background:#f7f7f7}
 
-.card-body {
-  padding: 16px;
-}
+  .action-btn{background:#0288d1;color:#fff;border:none;border-radius:6px;padding:10px 14px;cursor:pointer}
+  .action-btn:hover{background:#0270a0}.save-btn{width:100%}
+  .remove-btn{background:#f44336;color:#fff;border:none;border-radius:6px;padding:8px 10px}
 
-.mt-3 {
-  margin-top: 20px;
-}
+  .summary-row td{background:#f8f8f8;font-weight:bold}
+  .summary-label{text-align:right}
 
-.flex-between {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.flex-row {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-/* Field Labels */
-.field-label {
-  font-weight: bold;
-  color: #555;
-  margin-bottom: 6px;
-  display: inline-block;
-}
-
-/* Form Elements */
-.dropdown-select {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.table-select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.table-input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-/* Styled Table */
-.styled-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.styled-table thead tr {
-  background-color: #0288d1;
-  color: #fff;
-}
-
-.styled-table th,
-.styled-table td {
-  padding: 10px;
-  border: 1px solid #ddd;
-  text-align: center;
-}
-
-.summary-row td {
-  background-color: #f8f8f8;
-  font-weight: bold;
-}
-
-.summary-label {
-  text-align: right;
-}
-
-/* Buttons */
-.action-btn {
-  background-color: #0288d1;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-  font-size: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-btn:hover {
-  background-color: #026ca0;
-}
-
-.add-row-btn {
-  font-size: 15px;
-}
-
-.save-btn {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* Remove Button */
-.remove-btn {
-  background-color: #f44336;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.remove-btn:hover {
-  background-color: #d32f2f;
-}
-
-/* Messages */
-.feedback-message {
-  margin-top: 20px;
-  text-align: center;
-  font-weight: bold;
-  padding: 10px;
-  border-radius: 8px;
-}
-
-.success {
-  background-color: #d4edda;
-  color: #155724;
-}
-
-.error {
-  background-color: #f8d7da;
-  color: #721c24;
-}
-</style>
+  .feedback-message{margin-top:20px;text-align:center;font-weight:bold;padding:10px;border-radius:8px}
+  .feedback-message.success{background:#d4edda;color:#155724}
+  .feedback-message.error  {background:#f8d7da;color:#721c24}
+  </style>

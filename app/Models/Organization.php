@@ -39,6 +39,24 @@ class Organization extends Model
                     ->withPivot('starts_at','ends_at')
                     ->first();
     }
+    // app/Models/Organization.php
+// app/Models/Organization.php
+// app/Models/Organization.php
+public function activePlans()                    // <-- relation (many)
+{
+    return $this->belongsToMany(Plan::class, 'organization_plan')
+                ->withPivot(['starts_at','ends_at'])
+                ->wherePivot('starts_at','<=', now())
+                ->wherePivot('ends_at',   '>=', now());
+}
+
+public function getActivePlanAttribute(): ?Plan  // <-- $org->active_plan
+{
+    return $this->activePlans->first();
+}
+
+
+
     public function planHasPermission(string $code): bool
     {
         $plan = $this->activePlan();

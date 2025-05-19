@@ -58,40 +58,39 @@ class BasketController extends Controller
 
 public function add(Request $request): JsonResponse
 {
+    /* ───── 1.  ВАЛИДАЦИЯ ───── */
     $data = $request->validate([
         'product_subcard_id' => ['required','uuid','exists:product_sub_cards,id'],
+        'organization_id'    => ['required','uuid','exists:organizations,id'],   // ➊ NEW
         'source_table'       => ['required','string','in:sales,price_offer_items,favorites'],
         'source_table_id'    => ['required','uuid'],
-        'amount'   => ['sometimes','numeric','gt:0'],
-        'quantity' => ['sometimes','numeric','gt:0'],
-        'price'    => ['required','numeric','gte:0'],
-        'total_sum'=> ['sometimes','numeric','gte:0'],
-        'totalsum' => ['sometimes','numeric','gte:0'],
-        'unit_measurement' => ['required','string','max:255'],
+        'amount'             => ['sometimes','numeric','gt:0'],
+        'quantity'           => ['sometimes','numeric','gt:0'],
+        'price'              => ['required','numeric','gte:0'],
+        'total_sum'          => ['sometimes','numeric','gte:0'],                // ➋ переименовали
+        'unit_measurement'   => ['required','string','max:255'],
     ]);
 
-    /* нормализация */
+    /* ───── 2.  НОРМАЛИЗАЦИЯ ───── */
     $data['quantity']  = $data['quantity'] ?? $data['amount'] ?? 1;
-    $data['total_sum'] = $data['total_sum']
-                      ?? $data['totalsum']
-                      ?? $data['quantity'] * $data['price'];
+    $data['total_sum'] = $data['total_sum'] ?? $data['quantity'] * $data['price'];
 
     $userId = Auth::id();
 
-    /* ключи, которые делают запись «уникальной» */
+    /* ───── 3.  «Ключ» записи — теперь ещё и organization_id ───── */
     $where = [
         'id_client_request'  => $userId,
         'product_subcard_id' => $data['product_subcard_id'],
+        'organization_id'    => $data['organization_id'],                      // ➌ NEW
         'source_table'       => $data['source_table'],
         'source_table_id'    => $data['source_table_id'],
     ];
 
-    /* значения для обновления */
+    /* ───── 4.  Поля для обновления / создания ───── */
     $payload = [
         'price'            => $data['price'],
         'unit_measurement' => $data['unit_measurement'],
         'total_sum'        => DB::raw('COALESCE(total_sum,0) + '.$data['total_sum']),
-        // прибавляем количество
         'quantity'         => DB::raw('COALESCE(quantity,0) + '.$data['quantity']),
     ];
 
@@ -99,8 +98,8 @@ public function add(Request $request): JsonResponse
         Basket::updateOrCreate($where, $payload);
         return response()->json(['success' => true]);
     } catch (\Throwable $e) {
-        Log::error('Basket add error', ['msg'=>$e->getMessage()]);
-        return response()->json(['success'=>false,'error'=>$e->getMessage()], 500);
+        Log::error('Basket add error', ['msg' => $e->getMessage()]);
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
     }
 }
 
@@ -203,86 +202,93 @@ public function changeQuantity(Request $request): JsonResponse
      */
 
      public function placeOrder(Request $request): JsonResponse
-     {
-         /* ───── 1.  ВАЛИДАЦИЯ ───── */
-         $request->validate([
-             'address' => ['required','string','max:255'],
-         ]);
+{
+    /* ───── 1.  ВАЛИДАЦИЯ ───── */
+    $request->validate([
+        'address' => ['required','string','max:255'],
+    ]);
 
-         $user    = Auth::user();
-         $address = $request->input('address');
+    $user    = Auth::user();
+    $address = $request->input('address');
 
-         $basket  = Basket::where('id_client_request', $user->id)->get();
-         if ($basket->isEmpty()) {
-             return response()->json(['error' => 'Your basket is empty'], 400);
-         }
+    /* ───── 2.  Корзина пользователя ───── */
+    $basket = Basket::where('id_client_request', $user->id)->get();
+    if ($basket->isEmpty()) {
+        return response()->json(['error' => 'Your basket is empty'], 400);
+    }
 
-         /* ───── 2.  НАХОДИМ id статуса «ожидание» ───── */
-         $waitingStatusId = StatusDoc::where('name', 'на фасовке')
-                             ->value('id');                 // вернёт UUID или null
+    /* ⬇ убедимся, что в корзине нет товаров из разных организаций */
+    if ($basket->pluck('organization_id')->unique()->count() !== 1) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'Корзина содержит товары из разных организаций. Оформите их отдельными заказами.',
+        ], 400);
+    }
+    $organizationId = $basket->first()->organization_id;                       // ➍ NEW
 
-         if (!$waitingStatusId) {
-             return response()->json([
-                 'success' => false,
-                 'error'   => 'Статус «ожидание» не найден в таблице status_docs',
-             ], 500);
-         }
+    /* ───── 3.  Статус «на фасовке» ───── */
+    $waitingStatusId = StatusDoc::where('name', 'на фасовке')->value('id');
+    if (!$waitingStatusId) {
+        return response()->json([
+            'success' => false,
+            'error'   => 'Статус «на фасовке» не найден в таблице status_docs',
+        ], 500);
+    }
 
-         /* ───── 3.  ТРАНЗАКЦИЯ ───── */
-         DB::beginTransaction();
-         try {
-             /* 3-A. создаём «шапку» Order */
-             $order = Order::create([
-                 'id'              => (string) Str::uuid(),    // если PK – UUID
-                 'user_id'         => $user->id,
-                 'organization_id' => $user->organization_id,
-                 'status_id'       => $waitingStatusId,
-                 'address'         => $address,
-                 'total_sum'       => 0,                       // заполним ниже
-             ]);
+    /* ───── 4.  ТРАНЗАКЦИЯ ───── */
+    DB::beginTransaction();
+    try {
+        /* 4-A. Шапка заказа */
+        $order = Order::create([
+            'id'              => (string) Str::uuid(),
+            'user_id'         => $user->id,
+            'organization_id' => $organizationId,                              // ➎ NEW
+            'status_id'       => $waitingStatusId,
+            'address'         => $address,
+            'total_sum'       => 0, // заполним ниже
+        ]);
 
-             /* 3-B. строки заказа + итог */
-             $total = 0;
+        /* 4-B. Строки заказа + итог */
+        $total = 0;
+        foreach ($basket as $row) {
+            $lineSum = $row->total_sum ?? $row->price * $row->quantity;
 
-             foreach ($basket as $row) {
-                 $lineSum = $row->total_sum ?? $row->price * $row->quantity;
+            $order->orderItems()->create([
+                'product_subcard_id' => $row->product_subcard_id,
+                'source_table'       => $row->source_table,
+                'source_table_id'    => $row->source_table_id,
+                'quantity'           => $row->quantity,
+                'price'              => $row->price,
+                'unit_measurement'   => $row->unit_measurement,
+                'total_sum'          => $lineSum,
+            ]);
 
-                 $order->orderItems()->create([
-                     'product_subcard_id' => $row->product_subcard_id,
-                     'source_table'       => $row->source_table,
-                     'source_table_id'    => $row->source_table_id,
-                     'quantity'           => $row->quantity,
-                     'price'              => $row->price,
-                     'unit_measurement'   => $row->unit_measurement,
-                     'totalsum'           => $lineSum,
-                 ]);
+            $total += $lineSum;
+        }
 
-                 $total += $lineSum;
-             }
+        /* 4-C. Итог по заказу */
+        $order->update(['total_sum' => $total]);
 
-             /* 3-C. обновляем total_sum в Order */
-             $order->update(['total_sum' => $total]);
+        /* 4-D. Очищаем корзину */
+        Basket::where('id_client_request', $user->id)->delete();
 
-             /* 3-D. очищаем корзину пользователя */
-             Basket::where('id_client_request', $user->id)->delete();
+        DB::commit();
 
-             DB::commit();
+        return response()->json([
+            'success' => true,
+            'order'   => $order->load('orderItems'),
+        ], 201);
 
-             return response()->json([
-                 'success' => true,
-                 'order'   => $order->load('orderItems'),
-             ], 201);
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('Place order error', ['msg' => $e->getMessage()]);
 
-         } catch (\Throwable $e) {
-             DB::rollBack();
-             Log::error('Place order error', ['msg' => $e->getMessage()]);
-
-             return response()->json([
-                 'success' => false,
-                 'error'   => 'Could not create order: '.$e->getMessage(),
-             ], 500);
-         }
-     }
+        return response()->json([
+            'success' => false,
+            'error'   => 'Could not create order: '.$e->getMessage(),
+        ], 500);
+    }
+}
     /**
      * Get the details of an order, including product subcards.
      */

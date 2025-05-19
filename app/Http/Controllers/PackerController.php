@@ -50,56 +50,71 @@ class PackerController extends Controller
 
 
     // накладная
-    public function create_packer_document(Request $request)
-    {
-        /* 1. валидация -------------------------------------------------- */
-        $validated = $request->validate([
-            'order_id'         => 'required|uuid|exists:orders,id',
-            'courier_id'       => 'required|uuid|exists:users,id',
-            'place_quantity'   => 'required|integer|min:0',   // ← новое поле
-            'products'                     => 'required|array|min:1',
-            'products.*.order_item_id'     => 'required|uuid|exists:order_items,id',
-            'products.*.packer_quantity'   => 'required|numeric|min:1',
+    public function create_packer_document(Request $request): JsonResponse
+{
+    /* 1. Валидация */
+    $validated = $request->validate([
+        'order_id'                => ['required','uuid','exists:orders,id'],
+        'courier_id'              => ['required','uuid','exists:users,id'],
+        'place_quantity'          => ['nullable','integer','min:0'],   // ← nullable
+        'products'                => ['required','array','min:1'],
+        'products.*.order_item_id'=> ['required','uuid','exists:order_items,id'],
+        'products.*.packer_quantity'=> ['required','numeric','min:1'],
+    ]);
 
-            // убрали products.*.place_quantity
+    $user  = Auth::user();
+    $order = Order::findOrFail($validated['order_id']);
+
+    $handedId = StatusDoc::where('name', 'Передано курьеру')->value('id');
+    if (!$handedId) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Статус «Передано курьеру» не найден',
+        ], 422);
+    }
+
+    DB::beginTransaction();
+    try {
+        /* ─ Шапка ─ */
+        $order->update([
+            'packer_id'      => $user->id,
+            'courier_id'     => $validated['courier_id'],
+            'status_id'      => $handedId,
+            'place_quantity' => $validated['place_quantity'] ?? 0,
         ]);
 
-        $user  = Auth::user();
-        $order = Order::findOrFail($validated['order_id']);
+        /* ─ Позиции ─ */
+        foreach ($validated['products'] as $row) {
+            $item = OrderItem::where('id', $row['order_item_id'])
+                             ->where('order_id', $order->id)
+                             ->first();
 
-        $handedId = StatusDoc::where('name', 'Передано курьеру')->value('id');
-        if (!$handedId) {
-            return ['success'=>false, 'error'=>'Статус «Передано курьеру» не найден'];
+            if (!$item) {
+                Log::warning("OrderItem {$row['order_item_id']} not found for order {$order->id}");
+                continue;
+            }
+
+            $item->packer_quantity = $row['packer_quantity'];
+            $item->save();
         }
 
-        DB::transaction(function () use ($order, $validated, $user, $handedId) {
-
-            /* шапка заказа */
-            $order->update([
-                'packer_id'      => $user->id,
-                'courier_id'     => $validated['courier_id'],
-                'status_id'      => $handedId,
-                'place_quantity' => $validated['place_quantity'],   // ← сохраняем здесь
-            ]);
-
-            /* позиции */
-            foreach ($validated['products'] as $row) {
-                $item = OrderItem::where('id', $row['order_item_id'])
-                                 ->where('order_id', $order->id)
-                                 ->first();
-                if ($item) {
-                    $item->packer_quantity = $row['packer_quantity'];
-                    $item->save();
-                }
-            }
-        });
-
-        return [
-            'success' => true,
-            'message' => 'Документ создан, статус обновлён.',
-            'order'   => $order->fresh(['orderItems','statusDoc']),
-        ];
+        DB::commit();
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error($e);
+        return response()->json([
+            'success' => false,
+            'message' => 'Ошибка при сохранении документа',
+        ], 500);
     }
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Документ создан, статус заказа обновлён.',
+        'order'   => $order->fresh(['orderItems','statusDoc']),
+    ]);
+}
+
 
 
 

@@ -6,6 +6,8 @@ use Illuminate\Support\Str;
 
 class PermissionUser extends Pivot
 {
+        protected $fillable   = ['allowed'];   // ← добавили
+
     public $incrementing = false;
     protected $keyType   = 'string';
 

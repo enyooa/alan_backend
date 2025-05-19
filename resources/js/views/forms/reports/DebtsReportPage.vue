@@ -1,232 +1,166 @@
+<!-- resources/js/views/Reports/DebtsReportPage.vue -->
 <template>
-    <div class="unified-page">
-      <div class="filters">
-        <label>Дата с:<input type="date" v-model="fromDate" /></label>
-        <label>по:<input type="date" v-model="toDate" /></label>
-        <button @click="fetchReport" class="filter-button">Сформировать</button>
-      </div>
+  <div class="debts-page">
+    <!-- ══════════════════ Filters ══════════════════ -->
+    <div class="filters">
+      <label>Дата c:
+        <input type="date" v-model="fromDate">
+      </label>
 
-      <h2>Поступление + фин ордер + долги клиента</h2>
-      <table class="modern-table">
-        <thead>
-          <tr>
-            <th>Наименование</th>
-            <th>Приход</th>
-            <th>Расход</th>
-            <th>Баланс</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, idx) in finalRows" :key="idx">
-            <!-- GROUP ROWS => single label -->
-            <template v-if="row.row_type === 'group'">
-              <td><strong>{{ row.label }}</strong></td>
-              <td>–</td>
-              <td>–</td>
-              <td>–</td>
-            </template>
+      <label>по:
+        <input type="date" v-model="toDate">
+      </label>
 
-            <!-- PROVIDER ROW -->
-            <template v-else-if="row.row_type === 'provider'">
-              <td style="font-weight:bold;">
-                {{ row.name }}
-              </td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.incoming) }}</td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.outgoing) }}</td>
-              <td
-                :style="{
-                  textAlign:'right',
-                  color: row.balance < 0 ? 'red' : ''
-                }"
-              >
-                {{ formatMoney(row.balance) }}
-              </td>
-            </template>
+      <label>
+        На&nbsp;странице:
+        <select v-model.number="perPage">
+          <option v-for="n in [10,20,30,50,100]" :key="n" :value="n">{{ n }}</option>
+        </select>
+      </label>
 
-            <!-- DOC ROW -->
-            <template v-else-if="row.row_type === 'doc'">
-              <td style="padding-left:2em;">
-                {{ row.name }}
-              </td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.incoming) }}</td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.outgoing) }}</td>
-              <td
-                :style="{
-                  textAlign:'right',
-                  color: row.balance < 0 ? 'red' : ''
-                }"
-              >
-                {{ formatMoney(row.balance) }}
-              </td>
-            </template>
-
-            <!-- CLIENT ROW -->
-            <template v-else-if="row.row_type === 'client'">
-              <td style="font-weight:bold; color:#333;">
-                {{ row.name }}
-              </td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.incoming) }}</td>
-              <td :style="{textAlign:'right'}">{{ formatMoney(row.outgoing) }}</td>
-              <td
-                :style="{
-                  textAlign:'right',
-                  color: row.balance < 0 ? 'red' : ''
-                }"
-              >
-                {{ formatMoney(row.balance) }}
-              </td>
-            </template>
-
-            <!-- ANY OTHER ROW_TYPE (optional) -->
-            <template v-else>
-              <td>{{ row.name }}</td>
-              <td>{{ formatMoney(row.incoming) }}</td>
-              <td>{{ formatMoney(row.outgoing) }}</td>
-              <td>{{ formatMoney(row.balance) }}</td>
-            </template>
-          </tr>
-        </tbody>
-      </table>
+      <button @click="fetchPage(1)">Сформировать</button>
     </div>
-  </template>
 
-  <script>
-  import axios from "axios";
+    <!-- ══════════════════ Table ═══════════════════ -->
+    <table v-if="rows.length" class="modern-table">
+      <thead>
+        <tr>
+          <th>Контрагент</th>
+          <th class="right">Нач. остаток</th>
+          <th class="right">Приход</th>
+          <th class="right">Расход</th>
+          <th class="right">Конеч. остаток</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="r in rows" :key="r.counterparty_id">
+          <td>{{ r.name }}</td>
+          <td class="right">{{ fmt(r.start) }}</td>
+          <td class="right">{{ fmt(r.income) }}</td>
+          <td class="right">{{ fmt(r.expense) }}</td>
+          <td class="right" :class="{ neg: r.end < 0 }">
+            {{ fmt(r.end) }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
-  export default {
-    name: "UnifiedDebtsPage",
-    data() {
-      return {
-        fromDate: "",
-        toDate: "",
-        finalRows: []
-      };
-    },
-    methods: {
-      async fetchReport() {
-        try {
-          const resp = await axios.get("/api/admin-report-debts", {
-            params: {
-              date_from: this.fromDate,
-              date_to: this.toDate
-            }
-          });
-          this.finalRows = resp.data;
-        } catch (err) {
-          console.error("Error fetching unified report:", err);
-          alert("Не удалось загрузить отчет");
-        }
+    <p v-if="!loading && rows.length === 0" class="empty">
+      Нет данных по выбранным условиям
+    </p>
+
+    <!-- ══════════════════ Pagination ══════════════ -->
+    <div v-if="meta.total_rows > meta.per_page" class="pager">
+      <button
+        :disabled="meta.current_page === 1 || loading"
+        @click="fetchPage(meta.current_page - 1)"
+      >
+        « Prev
+      </button>
+
+      <span>
+        страница {{ meta.current_page }} / {{ meta.last_page }}
+      </span>
+
+      <button
+        :disabled="meta.current_page >= meta.last_page || loading"
+        @click="fetchPage(meta.current_page + 1)"
+      >
+        Next »
+      </button>
+    </div>
+
+    <!-- ══════════════════ Status ══════════════════ -->
+    <p v-if="loading">Загрузка…</p>
+    <p v-if="error" class="error">Ошибка: {{ error }}</p>
+  </div>
+</template>
+
+<script>
+import axios from 'axios';
+
+export default {
+  name: 'DebtsReportPage',
+  data() {
+    return {
+      fromDate: '',
+      toDate: '',
+      perPage: 20,
+
+      rows: [],
+      meta: {
+        current_page: 1,
+        last_page: 1,
+        per_page: 20,
+        total_rows: 0
       },
-      formatMoney(val) {
-        if (!val) return "0.00";
-        return Number(val).toLocaleString("ru-RU", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
+
+      loading: false,
+      error: null,
+    };
+  },
+  created() {
+    this.fetchPage(1);
+  },
+  methods: {
+    /** получить указанную страницу */
+    async fetchPage(page) {
+      this.loading = true;
+      this.error   = null;
+      try {
+        const { data } = await axios.get('/api/report-debts', {
+          params: {
+            date_from: this.fromDate || null,
+            date_to:   this.toDate   || null,
+            page,
+            per_page: this.perPage,
+          }
         });
+        this.rows = data.data || [];
+        this.meta = data.meta || this.meta;
+      } catch (e) {
+        console.error(e);
+        this.error = e.response?.data?.error || e.message;
+      } finally {
+        this.loading = false;
       }
     },
-    created() {
-      // optional: fetch immediately
-      this.fetchReport();
-    }
-  };
-  </script>
+    /** формат денег */
+    fmt(v) {
+      return (+v).toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    },
+  },
+  watch: {
+    perPage() { this.fetchPage(1); },
+  },
+};
+</script>
 
-  <style scoped>
-  .unified-page {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 20px;
-  }
-  .filters {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 16px;
-    align-items: center;
-  }
-  .filter-button {
-    background-color: #0288d1;
-    color: #fff;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .filter-button:hover {
-    background-color: #0277bd;
-  }
-  .modern-table {
-    width: 100%;
-    border-collapse: collapse;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.1);
-  }
-  .modern-table th, .modern-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
-  }
-  .modern-table thead {
-    background-color: #0288d1;
-    color: #fff;
-  }
-  </style>
+<style scoped>
+.debts-page { max-width: 950px; margin: 0 auto; font-family: sans-serif; }
 
-  <style scoped>
-  .operation-page {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 20px;
-  }
+/* Filters */
+.filters { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; align-items:center; }
+.filters input, .filters select { padding: 4px 6px; }
+.filters button { padding: 6px 14px; background:#0288d1; color:#fff; border:none; cursor:pointer; }
+.filters button:hover { background:#0277bd; }
 
-  /* Filters row + button */
-  .filters {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 16px;
-    align-items: center;
-  }
-  .filter-button {
-    background-color: #0288d1;
-    color: #fff;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .filter-button:hover {
-    background-color: #0277bd;
-  }
+/* Table */
+.modern-table { width: 100%; border-collapse: collapse; box-shadow:0 3px 8px rgba(0,0,0,.08); }
+.modern-table thead { background:#0288d1; color:#fff; }
+.modern-table th, .modern-table td { border:1px solid #ddd; padding:8px 10px; }
+.right { text-align:right; }
+.neg { color:red; }
 
-  /* Modern table style */
-  .modern-table {
-    width: 100%;
-    border-collapse: collapse;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.1);
-    margin-bottom: 24px;
-  }
-  .modern-table thead {
-    background-color: #0288d1;
-    color: #fff;
-  }
-  .modern-table th,
-  .modern-table td {
-    padding: 12px;
-    border: 1px solid #ddd;
-    text-align: left;
-  }
-  .modern-table tbody tr:hover {
-    background-color: #f6f6f6;
-  }
+/* Pager */
+.pager { margin-top:14px; display:flex; gap:18px; align-items:center; }
+.pager button { padding:4px 10px; }
+.pager button:disabled { opacity:.4; cursor:not-allowed; }
 
-  /* For row coloring if you like */
-  .provider {
-    background-color: #f2f2f2;
-    font-weight: bold;
-  }
-  .doc {
-    font-weight: bold;
-  }
-  .expense {
-    color: #666;
-  }
-  </style>
+/* Misc */
+.empty { margin-top:12px; color:#666; }
+.error { color:red; margin-top:12px; }
+</style>

@@ -194,7 +194,7 @@
 
 /* ---------- headline ---------- */
 .page-title{
-  color:#fff;text-align:center;margin:0 0 24px;
+  color:#18BDD7;text-align:center;margin:0 0 24px;
   font-size:clamp(20px,4vw,32px);font-weight:600;
   text-shadow:0 1px 3px rgba(0,0,0,.2);
 }

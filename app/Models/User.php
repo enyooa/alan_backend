@@ -150,26 +150,28 @@ class User extends Authenticatable
      * Relationship: Many courier documents for this user.
      */
 
-     public function permissions()
-     {
-         return $this->belongsToMany(
-             Permission::class,
-             'permission_user'
-         )->using(\App\Models\Pivot\PermissionUser::class);
-     }
-
-/* проверить наличие операции */
-public function hasPermission($code)
+   public function permissions()                    // GRANT / DENY flag
 {
-    return $this->permissions->contains('code', $code);
+    return $this->belongsToMany(Permission::class, 'permission_user')
+                ->withPivot('allowed')           // boolean
+                ->using(\App\Models\Pivot\PermissionUser::class);
 }
 
-/* назначить */
-public function givePermission($code)
+/* проверить наличие операции */
+public function hasPermission($code): bool
 {
-    $perm = Permission::where('code',$code)->first();
-    if ($perm && !$this->hasPermission($code)) {
-        $this->permissions()->attach($perm->id);
+    return $this->allPermissions()->contains('code', $code);
+}
+
+
+/* назначить */
+public function givePermission($code, bool $allow = true): void
+{
+    $permId = Permission::where('code', $code)->value('id');
+    if ($permId) {
+        $this->permissions()->syncWithoutDetaching([
+            $permId => ['allowed' => $allow],
+        ]);
     }
 }
 
@@ -185,18 +187,18 @@ public function hasPermissionDeep(string $code): bool
 }
 
 /* снять */
-public function revokePermission($code)
+public function revokePermission($code): void
 {
-    $perm = Permission::where('code',$code)->first();
-    if ($perm) {
-        $this->permissions()->detach($perm->id);
+    $permId = Permission::where('code', $code)->value('id');
+    if ($permId) {
+        $this->permissions()->detach($permId);
     }
 }
+public function organization()
+{
+    return $this->belongsTo(Organization::class);
+}
 
-public function organization()  // <- will be eager-loaded in responses
-    {
-        return $this->belongsTo(Organization::class);
-    }
 
     /* ───── accessor: $user->all_permission_codes ───── */
 public function getAllPermissionCodesAttribute()
@@ -220,61 +222,37 @@ public function getAllPermissionCodesAttribute()
 // app/Models/User.php
 public function allPermissionCodes(): array
 {
-    // 1) личные права пользователя
-    $codes = $this->permissions()->pluck('code');
-
-    // 2) права, полученные через роли
-    $codes = $codes->merge(
-        $this->roles
-             ->flatMap(function ($role) {          // для каждой роли…
-                 return $role->permissions
-                             ->pluck('code');      // …берём её codes
-             })
-    );
-
-    // 3) права активного плана организации (если она есть)
-    if ($this->organization) {
-        $codes = $codes->merge(
-            $this->organization->permissions->pluck('code')
-        );
-    }
-
-    // убираем дубликаты и возвращаем как обычный массив
-    return $codes->unique()->values()->all();
+    return $this->allPermissions()
+                ->pluck('code')
+                ->values()
+                ->all();
 }
 
 
+
 // app/Models/User.php
 // app/Models/User.php
-public function allPermissions()
+public function allPermissions(): \Illuminate\Support\Collection
 {
-    // 1) прямые
-    $direct = $this->permissions()
-        ->select('permissions.id', 'permissions.code', 'permissions.name')
-        ->get();
-
-    // 2) от ролей
-    $byRoles = $this->roles()
-        ->with(['permissions' => function ($q) {
-            $q->select('permissions.id', 'permissions.code', 'permissions.name');
-        }])
-        ->get()
-        ->pluck('permissions')
-        ->flatten(1);
-
-    // 3) от активного тарифа организации
     $planPerms = collect();
-    if ($this->organization && $this->organization->activePlan()) {
-        $planPerms = $this->organization
-                          ->activePlan()
-                          ->permissions()
-                          ->select('permissions.id', 'permissions.code', 'permissions.name')
-                          ->get();
+    if ($this->organization && $this->organization->active_plan) {
+        $planPerms = $this->organization->active_plan->permissions;
     }
 
-    return $direct->merge($byRoles)->merge($planPerms)
-                  ->unique('id')->values();      // коллекция Permission
-}
+    $rolePerms = $this->roles->flatMap(function ($r) {
+        return $r->permissions;
+    });
 
+    $overrides = $this->permissions;             // pivot->allowed
+    $grant = $overrides->where('pivot.allowed', true);
+    $deny  = $overrides->where('pivot.allowed', false);
+
+    return $planPerms
+            ->merge($rolePerms)
+            ->merge($grant)
+            ->diff($deny)                        // DENY wins
+            ->unique('id')
+            ->values();
+}
 
 }

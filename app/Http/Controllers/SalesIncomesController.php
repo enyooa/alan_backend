@@ -14,25 +14,34 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
+
 class SalesIncomesController extends Controller
 {
-    public function indexSales(Request $request): JsonResponse
-    {
-        $orgId = $request->user()->organization_id;
+   public function indexSales(Request $request): JsonResponse
+{
+    $orgId = $request->user()->organization_id;
 
-        $docs = Document::with([
-                    'fromWarehouse:id,name',
-                    'provider:id,name',
-                    'items','items.product','items.unitByName',
-                    'expenses:id,document_id,name,provider_id','expenses.provider:id,name',
-                ])
-                ->where('organization_id', $orgId)                     // ← только своя организация
-                ->whereHas('documentType', fn ($q) => $q->where('code','sale'))
-                ->orderByDesc('document_date')
-                ->get();
+    $docs = Document::with([
+                'fromWarehouse:id,name',
+                'provider:id,name',
 
-        return response()->json($docs);
-    }
+                /* товарные позиции */
+                'items','items.product','items.unitByName',
+
+                /* расходы — выбираем expense_name_id, а саму строку тянем отдельной связью */
+                'expenses:id,document_id,expense_name_id,provider_id,amount',
+                'expenses.name:id,name',          // 🔹 название расхода
+                'expenses.provider:id,name',      // 🔹 поставщик расхода
+            ])
+            ->where('organization_id', $orgId)
+            ->whereHas('documentType', fn ($q) => $q->where('code','sale'))
+            ->orderByDesc('document_date')
+            ->get();
+
+    return response()->json($docs);
+}
+
 
 
 /**
@@ -48,23 +57,14 @@ class SalesIncomesController extends Controller
  */
 public function postSales(Request $request): JsonResponse
 {
-    // Log::info($request->all());
-
-    /* ─── 1. Валидация ───────────────────────────────────────────── */
+    Log::info($request);
     $v = $request->validate([
-        // UUID-ключи
-        'client_id'             => ['sometimes','uuid','exists:users,id'],
-        // 'to_organization_id'  => ['nullable','uuid','exists:organizations,id','required_without:client_id'],
-
-        'assigned_warehouse_id' => ['required', 'uuid','exists:warehouses,id'],
-        'docDate'               => ['nullable', 'date'],
-
-        // товары
+        'client_id'             => ['required','uuid'],
+        'assigned_warehouse_id' => ['required','uuid','exists:warehouses,id'],
+        'docDate'               => ['nullable','date'],
         'products'                                            => ['required','array','min:1'],
         'products.*.product.product_subcard_id'               => ['required','uuid','exists:product_sub_cards,id'],
         'products.*.product.unit_measurement'                 => ['required','string','max:32'],
-
-        // количество / цена
         'products.*.qtyTare'   => ['nullable','numeric'],
         'products.*.price'     => ['required','numeric'],
         'products.*.brutto'    => ['nullable','numeric'],
@@ -72,106 +72,192 @@ public function postSales(Request $request): JsonResponse
         'products.*.total_sum' => ['required','numeric'],
     ]);
 
-    /* ─── 2. Шорткаты ────────────────────────────────────────────── */
-    $rows   = $v['products'];
-    $whId   = $v['assigned_warehouse_id'];
-    $client = $v['client_id'] ?? null;
-    $date   = \Illuminate\Support\Carbon::parse($v['docDate'] ?? now())->toDateString();
+    $rows = $v['products'];
+    $whId = $v['assigned_warehouse_id'];
 
-    // убеждаемся, что склад существует
-    $warehouse = Warehouse::findOrFail($whId);
-
-    /* ─── 3. Транзакция ──────────────────────────────────────────── */
     DB::beginTransaction();
     try {
-        /* 3.1 Шапка документа */
+        /* 1. шапка */
         $doc = Document::create([
             'document_type_id'  => DocumentType::where('code','sale')->firstOrFail()->id,
-            'status'            => '-',
-            'client_id'         => $client,
-            'document_date'     => $date,
+            'status'            => 'pending',          // ← главное отличие
+            'client_id'         => $v['client_id'],
+            'document_date'     => Carbon::parse($v['docDate'] ?? now())->toDateString(),
             'from_warehouse_id' => $whId,
             'organization_id'   => $request->user()->organization_id,
         ]);
 
-        /* 3.2 Строки + списание FIFO                               */
+        /* 2. строки БЕЗ warehouse_item_id */
         foreach ($rows as $row) {
+            DocumentItem::create([
+                'document_id'        => $doc->id,
+                'product_subcard_id' => data_get($row,'product.product_subcard_id'),
+                'unit_measurement'   => data_get($row,'product.unit_measurement'),
+                'quantity'           => $row['qtyTare'] ?? $row['netto'],
+                'brutto'             => $row['brutto'] ?? null,
+                'netto'              => $row['netto']  ?? null,
+                'price'              => $row['price'],
+                'total_sum'          => $row['total_sum'],
+            ]);
+        }
 
-            $prodId   = data_get($row,'product.product_subcard_id');
-            $unitName = trim((string) data_get($row,'product.unit_measurement'));
+        DB::commit();
+        return response()->json(['doc_id'=>$doc->id,'status'=>'pending'],201);
 
-            if ($unitName === '') {
-                throw new \Exception("Не указана единица измерения для товара {$prodId}");
-            }
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('postSales error: '.$e->getMessage());
+        return response()->json(['error'=>$e->getMessage()],500);
+    }
+}
+public function confirmSale(Request $request, Document $document): JsonResponse
+{
+    /* 0. проверки */
+    if ($document->documentType->code !== 'sale')
+        return response()->json(['error'=>'Not a sale document'],422);
+    if ($document->status !== 'pending')
+        return response()->json(['error'=>'Already confirmed / canceled'],422);
+    if ($document->client_id !== $request->user()->id)
+        return response()->json(['error'=>'Not your sale'],403);
 
-            $qtyNeed = (float) ($row['qtyTare'] ?? $row['netto'] ?? 0);
-            if ($qtyNeed <= 0) {
-                throw new \Exception("Количество должно быть > 0 (товар {$prodId})");
-            }
+    DB::beginTransaction();
+    try {
+        foreach ($document->items as $item) {
 
-            // партии с остатком
+            $qtyNeed = $item->quantity;
             $batches = WarehouseItem::where([
-                            'warehouse_id'       => $whId,
-                            'product_subcard_id' => $prodId,
-                            'unit_measurement'   => $unitName,
+                            'warehouse_id'       => $document->from_warehouse_id,
+                            'product_subcard_id' => $item->product_subcard_id,
+                            'unit_measurement'   => $item->unit_measurement,
                         ])
                         ->where('quantity','>',0)
-                        ->orderBy('created_at')     // FIFO
+                        ->orderBy('created_at')   // FIFO
                         ->lockForUpdate()
                         ->get();
 
-            $qtyLeft = $qtyNeed;
-
             foreach ($batches as $batch) {
-                if ($qtyLeft <= 0) break;
+                if ($qtyNeed <= 0) break;
 
-                $take  = min($qtyLeft, $batch->quantity);
-                $share = $take / $qtyNeed;
+                $take  = min($qtyNeed, $batch->quantity);
+                $share = $take / $item->quantity;
 
-                // строка документа
-                DocumentItem::create([
-                    'document_id'         => $doc->id,
-                    'warehouse_item_id'   => $batch->id,
-                    'product_subcard_id'  => $prodId,
-                    'unit_measurement'    => $unitName,
-                    'quantity'            => $take,
-                    'brutto'              => ($row['brutto'] ?? 0) * $share,
-                    'netto'               => ($row['netto']  ?? 0) * $share,
-                    'price'               => $row['price'],
-                    'total_sum'           => $row['price'] * $take,
-                    'cost_price'          => ($batch->cost_price ?? 0) * $take,
+                /* связываем строку с партией + себестоимость */
+                $item->update([
+                    'warehouse_item_id' => $batch->id,
+                    // 'cost_price'        => ($batch->cost_price ?? 0),
                 ]);
 
-                // списание из партии
+                /* списываем */
                 $batch->quantity  -= $take;
-                if (isset($row['brutto'])) $batch->brutto -= ($row['brutto'] ?? 0) * $share;
-                if (isset($row['netto']))  $batch->netto  -= ($row['netto']  ?? 0) * $share;
+                if ($item->brutto) $batch->brutto -= $item->brutto * $share;
+                if ($item->netto)  $batch->netto  -= $item->netto  * $share;
                 $batch->total_sum  = $batch->price * $batch->quantity;
                 $batch->save();
 
-                $qtyLeft -= $take;
+                $qtyNeed -= $take;
             }
 
-            if ($qtyLeft > 0) {
-                throw new \Exception("Недостаточно остатка по товару {$prodId} ({$unitName})");
-            }
+            if ($qtyNeed > 0)
+                throw new \Exception("Недостаточно остатка по товару {$item->product_subcard_id}");
+        }
+
+        $document->status = 'confirmed';
+        $document->save();
+
+        DB::commit();
+        return response()->json(['success'=>true,'doc_id'=>$document->id,'status'=>'confirmed']);
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('confirmSale error: '.$e->getMessage());
+        return response()->json(['error'=>$e->getMessage()],500);
+    }
+}
+
+
+public function mySales(Request $request): JsonResponse
+{
+    $sales = Document::with([
+                    'items','items.product',
+                    'fromWarehouse:id,name',
+                    'organization:id,name,address'          // ← новая строка
+
+                ])
+                ->whereHas('documentType', fn($q)=>$q->where('code','sale'))
+                ->where('client_id', $request->user()->id)
+                ->orderByDesc('created_at')
+                ->get();
+
+    return response()->json($sales);
+}
+
+
+
+
+public function postSalesWeb(Request $request): JsonResponse
+{
+    $v = $request->validate([
+        // получатель
+        'client_id'          => ['nullable','uuid','exists:users,id','required_without:to_organization_id'],
+        'to_organization_id' => ['nullable','uuid','exists:organizations,id','required_without:client_id'],
+
+        'assigned_warehouse_id' => ['required','uuid','exists:warehouses,id'],
+        'docDate'               => ['nullable','date'],
+
+        'products'                                            => ['required','array','min:1'],
+        'products.*.product.product_subcard_id'               => ['required','uuid','exists:product_sub_cards,id'],
+        'products.*.product.unit_measurement'                 => ['required','string','max:32'],
+        'products.*.qtyTare'   => ['nullable','numeric'],
+        'products.*.price'     => ['required','numeric'],
+        'products.*.brutto'    => ['nullable','numeric'],
+        'products.*.netto'     => ['nullable','numeric'],
+        'products.*.total_sum' => ['required','numeric'],
+    ]);
+
+    $rows     = $v['products'];
+    $whId     = $v['assigned_warehouse_id'];
+    $docDate  = Carbon::parse($v['docDate'] ?? now())->toDateString();
+
+    DB::beginTransaction();
+    try {
+        /* 1. header (status = pending, no stock touched) */
+        $doc = Document::create([
+            'id'                 => Str::uuid(),
+            'document_type_id'   => DocumentType::where('code','sale')->firstOrFail()->id,
+            'status'             => 'pending',
+            'client_id'          => $v['client_id']          ?? null,
+            'to_organization_id' => $v['to_organization_id'] ?? null,
+            'document_date'      => $docDate,
+            'from_warehouse_id'  => $whId,
+            'organization_id'    => $request->user()->organization_id,
+        ]);
+
+        /* 2. rows WITHOUT warehouse_item_id / cost_price */
+        foreach ($rows as $row) {
+            DocumentItem::create([
+                'document_id'        => $doc->id,
+                'product_subcard_id' => data_get($row,'product.product_subcard_id'),
+                'unit_measurement'   => trim(data_get($row,'product.unit_measurement')),
+                'quantity'           => $row['qtyTare'] ?? $row['netto'],
+                'brutto'             => $row['brutto'] ?? null,
+                'netto'              => $row['netto']  ?? null,
+                'price'              => $row['price'],
+                'total_sum'          => $row['total_sum'],
+            ]);
         }
 
         DB::commit();
         return response()->json([
             'success' => true,
-            'message' => 'Продажа сохрнена',
             'doc_id'  => $doc->id,
+            'status'  => 'pending',
+            'message' => 'Sale saved; waiting for client confirmation',
         ], 201);
 
     } catch (\Throwable $e) {
         DB::rollBack();
-        Log::error('postSales error: '.$e->getMessage());
-
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 500);
+        Log::error('postSalesWeb error: '.$e->getMessage());
+        return response()->json(['error'=>$e->getMessage()],500);
     }
 }
 
@@ -294,7 +380,7 @@ public function updateSales(Request $request, Document $document): JsonResponse
                     'netto'               => ($row['netto']  ?? 0) * $share,
                     'price'               => $row['price'],
                     'total_sum'           => $row['price'] * $take,
-                    'cost_price'          => ($batch->cost_price ?? 0) * $take,
+                    'cost_price'          => ($batch->cost_price ?? 0),
                 ]);
 
                 // списываем из партии

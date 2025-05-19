@@ -96,6 +96,16 @@ public function toWarehouse()   { return $this->belongsTo(Warehouse::class,'to_w
 
 public function fromWarehouse() { return $this->belongsTo(Warehouse::class,'from_warehouse_id'); }
 
+// app/Models/Document.php
+public function organization()
+{
+    return $this->belongsTo(
+        Organization::class,   // модель
+        'organization_id',     // FK в таблице documents
+        'id'                   // PK в organizations
+    )
+    ->select('id','name','address');   // какие поля реально нужны на фронте
+}
 
 
 protected $appends = ['client_info'];

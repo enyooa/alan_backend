@@ -14,61 +14,74 @@ class SalesClientController extends Controller
 {
     /*══════════════════════ 1. LIST ══════════════════════*/
     public function getSalesWithDetails(Request $request): JsonResponse
-    {
-        // $orgId = $request->user()->organization_id;            // 👈 фильтр по орг-ии
+{
+    // $orgId = $request->user()->organization_id;   // ← фильтр по организации (при необходимости)
 
-        $query = Sale::query();
+    $query = Sale::query();
 
-        /* ——— фильтр по дате ——— */
-        if ($request->filled('date')) {
-            try {
-                $date = Carbon::parse($request->query('date'))->toDateString();
-                $query->whereDate('sale_date', $date);
-            } catch (\Throwable $e) {
-                return response()->json([
-                    'success' => false,
-                    'error'   => 'Неверный формат date (YYYY-MM-DD)',
-                ], 422);
-            }
+    /* ——— фильтр по дате ——— */
+    if ($request->filled('date')) {
+        try {
+            $date = Carbon::parse($request->query('date'))->toDateString();
+            $query->whereDate('sale_date', $date);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Неверный формат date (YYYY-MM-DD)',
+            ], 422);
         }
-
-        /* ——— поиск по названию товара/карточки ——— */
-        if ($request->filled('search')) {
-            $needle = mb_strtolower(trim($request->query('search')), 'UTF-8');
-
-            /* (1) берём только те продажи, где есть совпавшая строка */
-            $query->whereHas('items.product', function ($q) use ($needle) {
-                $q->whereRaw('LOWER(product_sub_cards.name) LIKE ?', ["%{$needle}%"]);
-            });
-
-            /* (2) грузим только совпавшие строки */
-            $query->with([
-                'items' => function ($q) use ($needle) {
-                    $q->whereHas('product', function ($p) use ($needle) {
-                        $p->whereRaw('LOWER(product_sub_cards.name) LIKE ?', ["%{$needle}%"]);
-                    });
-                },
-                'items.product.productCard',
-            ]);
-        } else {
-            $query->with('items.product.productCard');
-        }
-
-        /* ——— финальная выборка + фиксация URL фото ——— */
-        $sales = $query->get();
-
-        foreach ($sales as $sale) {
-            foreach ($sale->items as $item) {
-                if ($pc = optional($item->product)->productCard) {
-                    $pc->photo_product = $pc->photo_product
-                        ? asset('storage/' . ltrim($pc->photo_product, '/'))
-                        : null;
-                }
-            }
-        }
-
-        return response()->json($sales);
     }
+
+    /* ——— поиск по названию товара/карточки ——— */
+    if ($request->filled('search')) {
+        $needle = mb_strtolower(trim($request->query('search')), 'UTF-8');
+
+        /* (1) берём только те продажи, где есть совпавшая строка */
+        $query->whereHas('items.product', function ($q) use ($needle) {
+            $q->whereRaw('LOWER(product_sub_cards.name) LIKE ?', ["%{$needle}%"]);
+        });
+
+        /* (2) грузим совпавшие строки + организацию */
+        $query->with([
+            'organization',                                         // ← ДОБАВЛЕНО
+            'items' => function ($q) use ($needle) {
+                $q->whereHas('product', function ($p) use ($needle) {
+                    $p->whereRaw('LOWER(product_sub_cards.name) LIKE ?', ["%{$needle}%"]);
+                });
+            },
+            'items.product.productCard',
+        ]);
+    } else {
+        // стандартная подгрузка: организация + товары
+        $query->with([
+            'organization',                                         // ← ДОБАВЛЕНО
+            'items.product.productCard',
+        ]);
+    }
+
+    /* ——— финальная выборка + фиксация URL-ов ——— */
+    $sales = $query->get();
+
+    foreach ($sales as $sale) {
+        // 1) организация: пример обработки логотипа / другого файла
+        if ($org = $sale->organization) {
+            $org->logo_url = $org->logo_path
+                ? asset('storage/' . ltrim($org->logo_path, '/'))
+                : null;
+        }
+
+        // 2) карточки товаров — как и было
+        foreach ($sale->items as $item) {
+            if ($pc = optional($item->product)->productCard) {
+                $pc->photo_product_url = $pc->photo_product
+                    ? asset('storage/' . ltrim($pc->photo_product, '/'))
+                    : null;
+            }
+        }
+    }
+
+    return response()->json($sales);
+}
 
     /*══════════════════════ 2. STORE (one line) ══════════════════════*/
     public function store(Request $request): JsonResponse

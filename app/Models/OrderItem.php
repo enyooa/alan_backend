@@ -44,5 +44,10 @@ public function source()
     return $this->morphTo(null, 'source_table', 'source_table_id');
 }
 
+// app/Models/OrderItem.php
+public function unit()
+{
+    return $this->belongsTo(Unit_measurement::class, 'unit_measurement'); // ← имя поля в таблице
+}
 
 }

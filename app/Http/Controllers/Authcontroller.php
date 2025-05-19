@@ -25,66 +25,77 @@ class AuthController extends Controller
      * Handle user login and return user details with token.
      */
     public function login(Request $request)
-{
-    $request->validate([
-        'whatsapp_number' => 'required',
-        'password'        => 'required',
-    ]);
+    {
+        /* 1. Валидация ввода ------------------------------------ */
+        $request->validate([
+            'whatsapp_number' => 'required',
+            'password'        => 'required',
+        ]);
 
-    $phone = $this->formatPhoneNumber($request->whatsapp_number);
+        $phone = $this->formatPhoneNumber($request->whatsapp_number);
 
-    if (!Auth::attempt(['whatsapp_number' => $phone, 'password' => $request->password])) {
-        return response()->json(['message' => 'Неправильный логин или пароль'], 401);
-    }
+        if (!Auth::attempt(['whatsapp_number' => $phone,
+                            'password'        => $request->password])) {
+            return response()->json(
+                ['message' => 'Неправильный логин или пароль'],
+                401
+            );
+        }
 
-    /** @var \App\Models\User $user */
-    $user = Auth::user()->load([
-        'roles:id,name',
-        'permissions:id,code,name',
-        'organization:id,name',
-        'roles.permissions:id,code,name',
-        'organization.plans.permissions:id,code,name' // чтобы не было N+1
-    ]);
+        /** @var \App\Models\User $user */
+        $user = Auth::user()->load([
+            'roles:id,name',
+            'permissions:id,code,name',
+            'organization:id,name',
+            'roles.permissions:id,code,name',
+            'organization.plans.permissions:id,code,name',
+        ]);
 
-    $isVerified = !is_null($user->phone_verified_at);
+        /* 2. Итоговый набор прав (без pivot) -------------------- */
+        $permissions = $user->allPermissions()
+                            ->map(function ($p) {
+                                return [
+                                    'id'   => $p->id,
+                                    'code' => $p->code,
+                                    'name' => $p->name,
+                                ];
+                            })
+                            ->values();        // Collection → array JSON-friendly
 
-    // ===== если не подтверждён телефон =====
-    if (!$isVerified) {
-        return response()->json([
+        $profile = [
             'id'              => $user->id,
-            'is_verified'     => false,
             'roles'           => $user->roles->pluck('name'),
             'organization'    => $user->organization,
-            'permissions'     => $user->allPermissions()->makeHidden('pivot'), // пустой массив
             'first_name'      => $user->first_name,
             'last_name'       => $user->last_name,
             'surname'         => $user->surname,
             'whatsapp_number' => $user->whatsapp_number,
             'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
-            'message'         => 'Телефон не подтверждён. Введите код из WhatsApp/SMS.'
-        ], 423);
+            'permissions'     => $permissions,
+        ];
+
+        /* 3. Телефон не подтверждён → 423 ----------------------- */
+        if (is_null($user->phone_verified_at)) {
+            return response()->json(
+                $profile + [
+                    'is_verified' => false,
+                    'message'     => 'Телефон не подтверждён. Введите код из WhatsApp/SMS.',
+                ],
+                423
+            );
+        }
+
+        /* 4. Всё ок → отдаём токен и успех ---------------------- */
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json(
+            $profile + [
+                'is_verified' => true,
+                'token'       => $token,
+            ],
+            200
+        );
     }
-
-    // ===== подтверждён: отдаём токен и ВСЕ права =====
-    $token = $user->createToken('auth_token')->plainTextToken;
-
-    return [
-        'id'              => $user->id,
-        'token'           => $token,
-        'is_verified'     => true,
-        'roles'           => $user->roles->pluck('name'),
-        'organization'    => $user->organization,
-        'first_name'      => $user->first_name,
-        'last_name'       => $user->last_name,
-        'surname'         => $user->surname,
-        'whatsapp_number' => $user->whatsapp_number,
-        'photo'           => $user->photo ? asset('storage/'.$user->photo) : null,
-
-        // ← самое главное: список прав
-        'permissions'     => $user->allPermissions()   // коллекция с id, code, name
-                             ->makeHidden('pivot'),    // убираем pivot-данные
-    ];
-}
 
 
     /**
@@ -189,6 +200,7 @@ class AuthController extends Controller
 
     public function registerOrganization(Request $request): JsonResponse
 {
+    Log::info($request);
     /* ① валидация */
     $data = $request->validate([
         'org_name'      => 'required|string|max:255',
@@ -209,6 +221,11 @@ class AuthController extends Controller
             'id'      => (string) Str::uuid(),
             'name'    => $data['org_name'],
             'address' => $data['address'] ?? '',
+            'manager_first_name' => $data['manager']['first_name'],
+            'manager_last_name' => $data['manager']['last_name'],
+            'manager_phone'=>$data['manager']['phone'],
+            'manager_role'=>'admin',
+
         ]);
 
         /* ── 2.2 План ── */
@@ -248,6 +265,8 @@ class AuthController extends Controller
      */
     public function sendVerificationCode(Request $request)
 {
+Log::info("hererrerrerrerr");
+Log::info($request);
     $request->validate(['phone_number' => 'required|string']);
     $phone = $this->formatPhoneNumber($request->phone_number);
 
@@ -256,16 +275,19 @@ class AuthController extends Controller
 }
 
 /*  внутренняя отправка: используем и из register()  */
-private function deliverVerificationCode(string $phone10)
+private function deliverVerificationCode(string $phone10): void
 {
-    $code = rand(1000, 9999);
+    Log::info("helellelele");
+    Log::info($phone10);
+    $code = random_int(1000, 9999);
 
-    PhoneVerification::updateOrCreate(
-        ['phone_number' => $phone10],   // 10-значный
-        ['code' => $code]
-    );
+    PhoneVerification::create([
+        'phone_number'    => $phone10,
+        'code'            => $code,
+        'organization_id' => null,   // или $orgId, если нужен
+    ]);
 
-    /* GreenAPI принимает 11 цифр */
+    /* отправляем через GreenAPI */
     $chatId = '7'.$phone10.'@c.us';
 
     Http::post(
@@ -275,11 +297,15 @@ private function deliverVerificationCode(string $phone10)
 }
 
 
+
     /**
      * Verify the code entered by the user.
      */
     public function verifyCode(Request $request)
 {
+    Log::info("verficacionnny code");
+    Log::info($request->all());
+
     $request->validate([
         'phone_number' => 'required|string',
         'code'         => 'required|string',

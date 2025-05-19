@@ -207,174 +207,169 @@
     </div>
   </template>
 
-  <script setup>
-  import { ref, computed, onMounted } from 'vue'
-  import axios from 'axios'
 
-  /* ────────── реактивное состояние ────────── */
-  const selectedProviderId  = ref('')
-  const selectedDate        = ref('')
-  const selectedWarehouseId = ref('')
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import axios from 'axios'
 
-  const providers   = ref([])
-  const products    = ref([])
-  const units       = ref([])
-  const allExpenses = ref([])
-  const warehouses  = ref([])
+/* ─── состояние ───────────────────────────────────────────── */
+const selectedProviderId  = ref('')
+const selectedDate        = ref('')
+const selectedWarehouseId = ref('')
 
-  const productRows = ref([{
-    _key: Date.now(),
+const providers   = ref([])
+const products    = ref([])
+const units       = ref([])    // { id, name, tare (в граммах) }
+const allExpenses = ref([])
+const warehouses  = ref([])
+
+/* строки товаров */
+const productRows = ref([newProductRow()])
+function newProductRow () {
+  return {
+    _key : Date.now() + Math.random(),
     product_subcard_id : null,
     unit_measurement   : null,
-    quantity           : 0,
+    quantity           : 0,      // qtyTare
     brutto             : 0,
     price              : 0
-  }])
-
-  const expenses = ref([])   // { _key, expense_id, provider_id, name, amount }
-
-  const message      = ref('')
-  const messageType  = ref('')
-  const isSubmitting = ref(false)
-
-  /* ────────── util ────────── */
-  const flatten = res => (res.refferences ?? []).flatMap(r => r.RefferenceItem ?? [])
-
-  /* ────────── fetchers ────────── */
-  async function fetchProviders () {
-  const { data } = await axios.get('/api/reference/provider')
-  providers.value = data                       // ←  сразу массив
-}
-  async function fetchProducts () {
-    const { data } = await axios.get('/api/reference/subproductCard')
-    // products.value = flatten(data).map(i => ({ id: i.id, name: i.name }))
-    products.value = data
   }
-  async function fetchUnits () {
+}
+/* строки доп-расходов */
+const expenses = ref([])        // { _key, expense_id, provider_id, name, amount }
+
+/* ─── fetch из API (как было) ─────────────────────────────── */
+const flatten = res => (res.refferences ?? []).flatMap(r => r.RefferenceItem ?? [])
+
+async function fetchProviders ()  { providers.value   = (await axios.get('/api/reference/provider')).data }
+async function fetchProducts  ()  { products.value    = (await axios.get('/api/reference/subproductCard')).data }
+async function fetchUnits     ()  {
   const { data } = await axios.get('/api/reference/unit')
-  units.value = data.map(u => ({
-    id: u.id,
-    name: u.name,
-    tare: Number(u.value) || 0
-  }))
+  units.value = data.map(u => ({ id:u.id, name:u.name, tare:Number(u.value)||0 }))
 }
-async function fetchAllExpenses () {
-  const { data } = await axios.get('/api/reference/expense')
-  allExpenses.value = data                     // ←  сразу массив
+async function fetchAllExpenses (){ allExpenses.value = (await axios.get('/api/reference/expense')).data }
+async function fetchWarehouses () { warehouses.value  = (await axios.get('/api/getWarehouses')).data }
+
+onMounted(() => Promise.all([
+  fetchProviders(), fetchProducts(), fetchUnits(),
+  fetchAllExpenses(), fetchWarehouses()
+]))
+
+/* ─── helpers: добавить / удалить строки ──────────────────── */
+function addProductRow  () { productRows.value.push(newProductRow()) }
+function removeProductRow (idx){ productRows.value.splice(idx,1) }
+
+function addExpenseRow () {
+  expenses.value.push({ _key:Date.now()+Math.random(), expense_id:'', provider_id:'', name:'', amount:0 })
 }
-  async function fetchWarehouses () {
-    const { data } = await axios.get('/api/getWarehouses')
-    warehouses.value = data
-  }
+function removeExpense (idx){ expenses.value.splice(idx,1) }
+function onExpenseSelect (row){
+  const found = allExpenses.value.find(e=>e.id===row.expense_id)
+  row.name   = found?.name   ?? ''
+  row.amount = found?.amount ?? 0
+}
 
-  onMounted(() => Promise.all([
-    fetchProviders(), fetchProducts(),
-    fetchUnits(), fetchAllExpenses(), fetchWarehouses()
-  ]))
+/* ─── общие утилиты ───────────────────────────────────────── */
+const isKg = n => /кг|килограмм/i.test(n ?? '')
 
-  /* ────────── helpers: строки таблиц ────────── */
-  function addProductRow () {
-    productRows.value.push({
-      _key: Date.now() + Math.random(),
-      product_subcard_id : null,
-      unit_measurement   : null,
-      quantity           : 0,
-      brutto             : 0,
-      price              : 0
-    })
-  }
-  const removeProductRow = idx => productRows.value.splice(idx, 1)
+/* цена доп-расходов на 1 единицу (тара + кг) */
+function getExpPerUnit () {
+  const tareCnt = productRows.value.reduce((s,r)=>s + (+r.quantity||0), 0)
+  const kiloCnt = productRows.value.reduce(
+    (s,r)=> isKg(r.unit_measurement) ? s + (+r.brutto||0) : s, 0
+  )
+  const allCnt  = tareCnt + kiloCnt
+  const expSum  = expenses.value.reduce((s,e)=>s + (+e.amount||0), 0)
+  return allCnt ? expSum / allCnt : 0
+}
 
-  function addExpenseRow () {
-    expenses.value.push({
-      _key        : Date.now() + Math.random(),
-      expense_id  : '',
-      provider_id : '',
-      name        : '',
-      amount      : 0
-    })
-  }
-  const removeExpense = idx => expenses.value.splice(idx, 1)
-  function onExpenseSelect (row) {
-    const found = allExpenses.value.find(e => e.id === row.expense_id)
-    row.name   = found ? found.name   : ''
-    row.amount = found ? found.amount : 0
-  }
+/* ─── формулы в стиле React-Native ────────────────────────── */
+function calcNetto (r){
+  const u = units.value.find(x=>x.name===r.unit_measurement) || { tare:0 }
+  if (isKg(u.name)) return +r.brutto || 0
+  const tareKg = u.tare / 1000
+  return Math.max((+r.brutto||0) - (+r.quantity||0) * tareKg, 0)
+}
 
-  /* ────────── расчёты ────────── */
-  const calcNetto = r => {
-    const u = units.value.find(x => x.name === r.unit_measurement) || { tare:0 }
-    return (r.brutto || 0) - (r.quantity || 0) * (u.tare / 1000)
-  }
-  const calcTotal      = r => calcNetto(r) * (r.price || 0)
-  const calcRowExpense = r => {
-    const qtySum = productRows.value.reduce((s,x)=>s+(x.quantity||0),0)
-    const expSum = expenses.value   .reduce((s,x)=>s+(x.amount||0),0)
-    const perQty = qtySum > 0 ? expSum / qtySum : 0
-    return perQty * (r.quantity||0)
-  }
-  const calcCostPrice = r => {
-    const q = r.quantity || 1
-    return (calcTotal(r) + calcRowExpense(r)) / q
-  }
-  const formatPrice = v => (v??0).toFixed(2)
+function calcTotal (r){
+  const net = calcNetto(r)
+  if (isKg(r.unit_measurement)) return (+r.price||0) * net
 
-  /* итоги */
-  const totalNetto    = computed(() => productRows.value.reduce((s,r)=>s+calcNetto(r),0))
-  const totalSum      = computed(() => productRows.value.reduce((s,r)=>s+calcTotal(r),0))
-  const totalExpenses = computed(() => expenses.value.reduce((s,e)=>s+(e.amount||0),0))
+  if ((+r.brutto||0) === 0 && net === 0)
+    return (+r.price||0) * (+r.quantity||0)
 
-  /* ────────── submit ────────── */
-  async function submitProductReceivingData () {
-    isSubmitting.value = true
-    try {
-      const payload = {
-        provider_id          : selectedProviderId.value,
-        document_date        : selectedDate.value,
-        assigned_warehouse_id: selectedWarehouseId.value,
+  return (+r.price||0) * net
+}
 
-        products: productRows.value.map(r => ({
-          product_subcard_id  : r.product_subcard_id,
-          unit_measurement    : r.unit_measurement,
-          quantity            : r.quantity,
-          brutto              : r.brutto,
-          netto               : calcNetto(r),
-          price               : r.price,
-          total_sum           : calcTotal(r),
-          additional_expenses : calcRowExpense(r),
-          cost_price          : calcCostPrice(r)
-        })),
+function calcRowExpense (r){
+  const per = getExpPerUnit()
+  const base = isKg(r.unit_measurement)
+    ? (+r.brutto || 0)
+    : (+r.quantity || 0)
+  return +(base * per).toFixed(2)
+}
 
-        expenses: expenses.value.map(e => ({
-          expense_id : e.expense_id,
-          provider_id: e.provider_id,
-          amount     : e.amount
-        }))
-      }
+function calcCostPrice (r){
+  const base = isKg(r.unit_measurement)
+    ? (+r.brutto || 0)
+    : (+r.quantity || 0)
+  if (!base) return 0
+  return +((calcTotal(r) + calcRowExpense(r)) / base).toFixed(2)
+}
+const formatPrice = v => (v??0).toFixed(2)
 
-      await axios.post('/api/receivingBulkStore', payload)
-      message.value = 'Данные успешно сохранены!'
-      messageType.value = 'success'
+/* ─── итоги ───────────────────────────────────────────────── */
+const totalNetto    = computed(()=> productRows.value.reduce((s,r)=>s+calcNetto(r) ,0))
+const totalSum      = computed(()=> productRows.value.reduce((s,r)=>s+calcTotal(r) ,0))
+const totalExpenses = computed(()=> expenses.value   .reduce((s,e)=>s+(+e.amount||0),0))
 
-      /* reset */
-      productRows.value = [{
-        _key: Date.now(),
-        product_subcard_id:null, unit_measurement:null,
-        quantity:0, brutto:0, price:0
-      }]
-      expenses.value = []
-      selectedProviderId.value  = ''
-      selectedDate.value        = ''
-      selectedWarehouseId.value = ''
+/* ─── submit (как было) ───────────────────────────────────── */
+const message      = ref('')
+const messageType  = ref('')
+const isSubmitting = ref(false)
+
+async function submitProductReceivingData(){
+  isSubmitting.value = true
+  try {
+    const payload = {
+      provider_id          : selectedProviderId.value,
+      document_date        : selectedDate.value,
+      assigned_warehouse_id: selectedWarehouseId.value,
+      products: productRows.value.map(r=>({
+        product_subcard_id : r.product_subcard_id,
+        unit_measurement   : r.unit_measurement,
+        quantity           : r.quantity,
+        brutto             : r.brutto,
+        netto              : calcNetto(r),
+        price              : r.price,
+        total_sum          : calcTotal(r),
+        additional_expenses: calcRowExpense(r),
+        cost_price         : calcCostPrice(r)
+      })),
+      expenses: expenses.value.map(e=>({
+        expense_id : e.expense_id,
+        provider_id: e.provider_id,
+        amount     : e.amount
+      }))
     }
-    catch (err) {
-      console.error(err)
-      message.value = 'Ошибка при сохранении данных.'
-      messageType.value = 'error'
-    }
-    finally { isSubmitting.value = false }
+    await axios.post('/api/receivingBulkStore', payload)
+    message.value     = 'Данные успешно сохранены!'
+    messageType.value = 'success'
+    /* reset */
+    productRows.value = [newProductRow()]
+    expenses.value    = []
+    selectedProviderId.value  = ''
+    selectedDate.value        = ''
+    selectedWarehouseId.value = ''
   }
-  </script>
+  catch(err){
+    console.error(err)
+    message.value     = 'Ошибка при сохранении данных.'
+    messageType.value = 'error'
+  }
+  finally{ isSubmitting.value = false }
+}
+</script>
 
 <style scoped>
 /* Full Page Container */

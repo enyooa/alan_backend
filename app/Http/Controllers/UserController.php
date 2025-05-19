@@ -72,19 +72,28 @@ public function removeRole(Request $request, User $user)
     // Store a new user (create employee)
     public function storeUser(Request $request)
     {
+        Log::info($request);
         /* ─── 1. Валидация ─── */
         $validated = $request->validate([
             'first_name'            => 'required|string',
             'last_name'             => 'nullable|string',
             'surname'               => 'nullable|string',
-            'whatsapp_number'       => 'required|unique:users',
+        'whatsapp_number'       => 'required|unique:users,whatsapp_number',
             'role'                  => 'required|in:admin,client,cashbox,packer,storager,courier',
             'password'              => 'required|string|min:6',
 
             /* склад (для storager / packer / courier) */
             'warehouse_name'        => 'nullable|string',
             'existing_warehouse_id' => 'nullable|uuid|exists:warehouses,id',
-        ]);
+        ],
+        [
+        /* ключ строится как: "<поле>.<правило>" */
+        'whatsapp_number.required' => 'Поле «WhatsApp‑номер» обязательно.',
+        'whatsapp_number.unique'   => 'Пользователь с таким WhatsApp‑номером уже существует.',
+    ]
+
+
+    );
 
         $orgId = $request->user()->organization_id;        // организация текущего админа
 
@@ -242,134 +251,123 @@ public function removeRole(Request $request, User $user)
         return response()->json($users, 200);
     }
 
-    public function stuff()
+public function stuff(): JsonResponse
 {
-    /* ---------- users without any role ---------- */
+    $rels = [
+        'roles:id,name',
+        'permissions:id,code,name',
+        'roles.permissions:id,code,name',
+        'organization.activePlans.permissions:id,code,name',
+    ];
+
+    // ------ группа «Без ролей»
     $noRoleUsers = User::doesntHave('roles')
-        ->with('permissions')                    // eager‑load perms
-        ->get()
-        ->map(fn ($u) => $this->userPayload($u));
+        ->with($rels)->get()
+        ->map(fn ($u) => $this->payload($u));
 
-    /* ---------- every role with its users ---------- */
-    $roles = Role::with(['users.permissions'])   // eager‑load roles→users→perms
-                 ->orderBy('name')
-                 ->get();
-    $permissions = Permission::all();
-    $data = collect();
+    $noRolePerms = $noRoleUsers->flatMap(fn ($u) => $u['permissions'])
+                               ->unique('id')->values();
 
-    /* block ➊  “Без ролей” */
-    $data->push([
-        'role'  => 'Без ролей',
-        'users' => $noRoleUsers,
-        'permissions'=> $permissions,
-    ]);
+    $groups = collect([[
+        'role'        => 'Без ролей',
+        'users'       => $noRoleUsers,
+        'permissions' => $noRolePerms,
+    ]]);
 
-    /* blocks ➋  each actual role */
-    foreach ($roles as $role) {
-        $data->push([
-            'role'  => $role->name,
-            'users' => $role->users
-                           ->map(fn ($u) => $this->userPayload($u)),
+    // ------ реальные роли
+    $roles = Role::with(['users' => fn ($q) => $q->with($rels)])
+                 ->orderBy('name')->get();
+
+    foreach ($roles as $r) {
+        $groups->push([
+            'role'  => $r->name,
+            'users' => $r->users->map(fn ($u) => $this->payload($u)),
         ]);
     }
 
-    return response()->json($data->values(), 200);
+    return response()->json($groups->values(), 200);
 }
 
-/** Convert a user to JSON shape */
-private function userPayload(User $u): array
+/** единичный пользователь в формате, который ждёт Vue */
+private function payload(User $u): array
 {
-    $roleNames = $u->roles->pluck('name')->values();     // ['admin', 'client', …]
-
     return [
-        'id'          => $u->id,
-        'first_name'  => $u->first_name,
-        'last_name'   => $u->last_name,
-        'surname'     => $u->surname,
-        'whatsapp'    => $u->whatsapp_number,
-        'roles'       => $roleNames,                     // ← NEW array of roles
-        'permissions'     => $u->allPermissions()->makeHidden('pivot'),
-
+        'id'         => $u->id,
+        'first_name' => $u->first_name,
+        'last_name'  => $u->last_name,
+        'surname'    => $u->surname,
+        'whatsapp'   => $u->whatsapp_number,
+        'roles'      => $u->roles->pluck('name')->values()->all(),
+        'permissions'=> $u->allPermissions()
+                         ->map(fn ($p)=>['id'=>$p->id,'code'=>$p->code,'name'=>$p->name])
+                         ->values()->all(),
     ];
 }
 
+
+
+
     /* helper: что именно отдаём о пользователе  */
-    public function updateStuff(Request $request, User $user)
-    {
+ public function updateStuff(Request $r, User $user)
+{
+    // старый контракт: roles + permissions (полный список, что ДОЛЖЕН быть)
+    $data = $r->validate([
+        'roles'       => ['sometimes','array'],
+        'roles.*'     => ['string','exists:roles,name'],
+        'permissions' => ['sometimes','array'],
+        'permissions.*'=>['integer','exists:permissions,code'],
+    ]);
 
-        Log::info([$request,$user->id]);
-        $data = $request->validate([
-            'roles'         => ['sometimes', 'array'],
-            'roles.*'       => ['string',  'exists:roles,name'],
+    DB::transaction(function () use ($data,$user) {
 
-            'permissions'   => ['sometimes', 'array'],
-            'permissions.*' => ['integer', 'exists:permissions,code'],
-        ]);
+        /* --- роли --- */
+        if (isset($data['roles'])) {
+            $ids = Role::whereIn('name',$data['roles'])->pluck('id');
+            $user->roles()->sync($ids);
+        }
 
-        DB::transaction(function () use ($data, $user) {
+        /* --- overrides:  GRANT everything that is in the array,
+                           DENY everything that is NOT in the array,
+                           relative to план+роли                         */
 
-            /* ───── РОЛИ ───── */
-            if (array_key_exists('roles', $data)) {
-                $roleIds = Role::whereIn('name', $data['roles'])->pluck('id');
-                $user->roles()->sync($roleIds);                 // оставляем ТОЛЬКО присланные
+        if (array_key_exists('permissions', $data)) {
+            $want = collect($data['permissions'])->unique();
+
+            // текущий full-set без overrides
+            $base = $user->roles->flatMap->permissions
+                     ->merge(
+                         $user->organization && $user->organization->active_plan
+                             ? $user->organization->active_plan->permissions
+                             : collect()
+                     )
+                     ->pluck('code')
+                     ->unique();
+
+            // what to grant / deny
+            $grant = $want->diff($base);
+            $deny  = $base->diff($want);
+
+            $pivot = [];
+
+            if ($grant->isNotEmpty()) {
+                $ids = Permission::whereIn('code',$grant)->pluck('id');
+                foreach ($ids as $id) $pivot[$id] = ['allowed'=>true];
+            }
+            if ($deny->isNotEmpty()) {
+                $ids = Permission::whereIn('code',$deny)->pluck('id');
+                foreach ($ids as $id) $pivot[$id] = ['allowed'=>false];
             }
 
-            /* ───── ПРАВА ───── */
-            if (array_key_exists('permissions', $data)) {
+            // sync overrides
+            $user->permissions()->sync($pivot);
+        }
+    });
 
-                // пустой массив → очищаем pivot полностью
-                if (empty($data['permissions'])) {
-                    $user->permissions()->sync([]);             // удалит все прямые права
-                } else {
-                    $permIds = Permission::whereIn('code', $data['permissions'])
-                                          ->pluck('id');
-                    $user->permissions()->sync($permIds);       // оставляем ТОЛЬКО присланные
-                }
-            }
-        });
+    return response()->json(['success'=>true]);
+}
 
-        /* ───── собираем обновлённого пользователя ───── */
-        $user->loadMissing([
-            'roles:id,name',
-            'permissions:id,code,name',
-            'organization.plans.permissions:id,code,name',
-        ]);
 
-        /* прямые права – без мусора pivot и без двусмысленного id */
-        $direct = $user->permissions
-                       ->map(fn ($p) => [
-                           'id'   => $p->id,
-                           'code' => $p->code,
-                           'name' => $p->name,
-                       ]);
 
-        /* итоговые права (прямые + роли + тариф) той же формы */
-        $merged = $user->allPermissions()            // ← метод из модели
-                       ->map(fn ($p) => [
-                           'id'   => $p->id,
-                           'code' => $p->code,
-                           'name' => $p->name,
-                       ]);
-
-        return [
-            'success'           => true,
-
-            // «сырой» юзер
-            'user'              => $user->only([
-                'id','first_name','last_name','surname',
-                'whatsapp_number','photo','organization_id'
-            ]),
-
-            // роли-строки, напр. ["admin"]
-            'roles'             => $user->roles->pluck('name'),
-
-            // прямые права после sync
-            'directPermissions' => $direct->values(),
-
-            // сумма прямых + ролей + тарифа орг-ии
-            'allPermissions'    => $merged->unique('id')->values(),
-        ];
-    }
 
 
     public function plans()   // ← нет JsonResponse

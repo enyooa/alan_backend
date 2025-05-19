@@ -642,3 +642,42 @@
     flex: 1;
   }
   </style>
+  <style scoped>
+  :root{--from:#03b4d1;--to:#3dc1ff;--r:14px;font-family:Inter,sans-serif}
+
+  /* top-bar */
+  .topbar{display:flex;align-items:center;gap:14px;
+         background:linear-gradient(90deg,var(--from),var(--to));
+         color:#fff;padding:10px 18px;border-radius:var(--r);margin-bottom:22px;
+         box-shadow:0 4px 12px rgba(0,0,0,.18)}
+  .topbar h1{margin:0;font-size:20px;font-weight:600}
+  .actions{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .select,.search{height:36px;font-size:14px;padding:0 10px;border:none;border-radius:8px}
+  .select{min-width:200px}
+  .search{width:220px}
+  .reload{border:none;background:none;color:#c8ff55;font-size:24px;cursor:pointer;line-height:1}
+
+  /* wrapper */
+  .table-wrapper{background:rgba(255,255,255,.55);backdrop-filter:blur(12px);
+                 padding:24px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.06);
+                 overflow-x:auto}
+
+  /* table */
+  .history-table{width:100%;border-collapse:collapse;font-size:14px}
+  .history-table thead{background:linear-gradient(90deg,var(--from),var(--to));color:#fff}
+  .history-table th,.history-table td{padding:10px 14px;text-align:center}
+  .history-table tbody tr+tr{border-top:1px solid #e2e8f0}
+  .click-row{cursor:pointer;transition:background .15s}
+  .click-row:hover{background:#f7fdff}
+  .empty{text-align:center;color:#7c7c7c;padding:14px 0}
+
+  /* кнопки */
+  .icon-btn{background:var(--from);color:#fff;border:none;border-radius:6px;
+            padding:4px 8px;font-size:16px;cursor:pointer;transition:filter .15s}
+  .icon-btn.danger{background:#f44336}
+  .icon-btn:hover{filter:brightness(.9)}
+  .actions{display:flex;gap:6px;justify-content:center}
+
+  /* (оставшиеся стили модалок при желании перенесите без изменений)
+     .modal-overlay, .modal-container … */
+  </style>

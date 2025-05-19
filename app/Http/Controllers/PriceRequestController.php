@@ -11,6 +11,7 @@ use App\Models\{
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -63,7 +64,7 @@ class PriceRequestController extends Controller
     /* ─────────────────────── 3. STORE ────────────────────── */
     public function store(Request $request): JsonResponse
     {
-        Log::info($request->all());
+        //Log::info($request->all());
 
         try   { $data = $this->validatePayload($request); }
         catch (ValidationException $e) {
@@ -177,60 +178,55 @@ class PriceRequestController extends Controller
     }
 
     /** Создание / обновление + строки */
-    protected function insertOrderWithItems(array $data,
-                                            ?PriceOfferOrder $existing = null): PriceOfferOrder
-    {
-        /* 1. Header */
-        $order = $existing ?? PriceOfferOrder::create([
-            'client_id'       => $data['client_id'],
-            'address_id'      => $data['address_id'],
-            'warehouse_id'    => $data['warehouse_id'],
-            'organization_id' => $data['organization_id'],
-            'start_date'      => Carbon::parse($data['start_date'])->toDateString(),
-            'end_date'        => Carbon::parse($data['end_date'])->toDateString(),
-            'totalsum'        => 0,
+    /**
+ * Создание / обновление + строки
+ */
+protected function insertOrderWithItems(array $data,
+                                        ?PriceOfferOrder $existing = null): PriceOfferOrder
+{
+    $user = Auth::user();
+    /* 1. Header */
+    $order = $existing ?? PriceOfferOrder::create([
+        'client_id'       => $data['client_id'],
+        'address_id'      => $data['address_id'],
+        'warehouse_id'    => $data['warehouse_id'],
+        'organization_id' => $user->organization_id,
+        'start_date'      => Carbon::parse($data['start_date'])->toDateString(),
+        'end_date'        => Carbon::parse($data['end_date'])->toDateString(),
+        'totalsum'        => 0,
+    ]);
+
+    /* 2. Lines */
+    $sum   = 0;
+    $items = [];
+    $whId  = $data['warehouse_id'];
+
+    foreach ($data['products'] as $row) {
+        $prodId   = $row['product']['product_subcard_id'];  // UUID
+        $unitName = $row['unit']['name'];                   // строка «коробка»
+        $qtyRaw   = $row['qtyTare'] ?? $row['qty'] ?? 0;
+        $qty      = (float)($qtyRaw === '' ? 0 : $qtyRaw);
+        $price    = (float)$row['price'];
+
+        // ← Убрана проверка stock->quantity и выброс исключения
+
+        $lineSum = $qty * $price;
+        $sum    += $lineSum;
+
+        $items[] = new PriceOfferItem([
+            'product_subcard_id' => $prodId,
+            'unit_measurement'   => $unitName,
+            'amount'             => $qty,
+            'price'              => $price,
         ]);
-
-        /* 2. Lines */
-        $sum   = 0;
-        $items = [];
-        $whId  = $data['warehouse_id'];
-
-        foreach ($data['products'] as $row) {
-
-            $prodId   = $row['product']['product_subcard_id'];  // UUID
-            $unitName = $row['unit']['name'];                   // строка «коробка»
-            $qtyRaw   = $row['qtyTare'] ?? $row['qty'] ?? 0;
-            $qty      = (float)($qtyRaw === '' ? 0 : $qtyRaw);
-            $price    = (float)$row['price'];
-
-            /* остаток на складе */
-            $stock = WarehouseItem::where([
-                        'warehouse_id'       => $whId,
-                        'product_subcard_id' => $prodId,
-                        'unit_measurement'   => $unitName,
-                     ])->first();
-
-            if (!$stock || $stock->quantity < $qty) {
-                throw new \Exception("Не хватает товара id={$prodId} ({$unitName}) на складе #{$whId}");
-            }
-
-            $lineSum = $qty * $price;
-            $sum    += $lineSum;
-
-            $items[] = new PriceOfferItem([
-                'product_subcard_id' => $prodId,
-                'unit_measurement'   => $unitName,
-                'amount'             => $qty,
-                'price'              => $price,
-            ]);
-        }
-
-        $order->items()->saveMany($items);
-        $order->update(['totalsum' => $sum]);
-
-        return $order;
     }
+
+    $order->items()->saveMany($items);
+    $order->update(['totalsum' => $sum]);
+
+    return $order;
+}
+
 
     protected function fail(\Throwable $e): JsonResponse
     {

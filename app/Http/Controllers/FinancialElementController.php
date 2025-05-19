@@ -14,8 +14,9 @@ class FinancialElementController extends Controller
 {
     public function index()
     {
-        $roleIds = Auth::user()->roles->pluck('id');
-        return FinancialElement::whereIn('role_id', $roleIds)->get();
+        // $roleIds = Auth::user()->roles->pluck('id');
+        $user_organization = Auth::user()->organization_id;
+        return FinancialElement::where('organization_id',$user_organization)->get();
     }
 
     /** GET /financial-elements/{type} – income OR expense, still role‑filtered */
@@ -52,6 +53,7 @@ class FinancialElementController extends Controller
 
     // 3) Merge role_id into the data we will persist
     $data = $request->only(['name', 'type']);
+    $data['organization_id']=$user->organization_id;
     $data['role_id'] = $role->id;
 
     // 4) Persist

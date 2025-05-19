@@ -8,27 +8,27 @@ import ProductCards from "../views/ProductCards.vue";
 import Accounts from "../views/Accounts.vue";
 import Reports from "../views/Reports.vue";
 import CustomerDebtReport from "../views/CustomerDebtReport.vue";
-import ReceiveProducts from "../views/ReceiveProducts.vue";
+import ReceiptProducts from "../components/operations/ReceiptProducts.vue";
 import OperationHistory from "../views/OperationHistory.vue";
 import TestProducts from "../views/TestProducts.vue";
 import TariffPlan from "../views/TariffPlan.vue";
 import RegisterOrganization from "../views/Auth/RegisterOrganization.vue";
-import WriteOffPage from "../views/WriteOffPage.vue";
-import PriceOfferPage from "../views/PriceOfferPage.vue";
+import WriteOffPage from "../components/operations/WriteOffsPage.vue";
+import PriceOfferPage from "../components/operations/PriceOffersPage.vue";
 
-import ProviderPage from "../views/forms/references/ProviderPage.vue";
-import ExpensePage from "../views/forms/references/ExpensePage.vue";
-import ProductCardPage from "../views/forms/references/ProductCardPage.vue";
-import AddressPage from "../views/forms/references/AddressPage.vue";
+import ProviderPage from "../components/references/ProvidersTable.vue";
+import ExpensePage from "../components/references/ExpensesTable.vue";
+import ProductCardPage from "../components/references/ProductCardsTable.vue";
+import AddressPage from "../components/references/AddressesTable.vue";
 import CashFlowReportPage from "../views/forms/reports/CashFlowReportPage.vue";
 import DebtsReportPage from "../views/forms/reports/DebtsReportPage.vue";
 import SalesReportPage from "../views/forms/reports/SalesReportPage.vue";
 import WarehouseReportPage from "../views/forms/reports/WarehouseReportPage.vue";
 import EmployeeFormPage from "../views/forms/EmployeeFormPage.vue";
 import EmployeesOld from "../views/EmployeesOld.vue";
-import CashPage from "../views/forms/references/CashPage.vue";
-import ClientSale from "../components/operations/ClientSale.vue";
-import SalePage from "../components/operations/Sales.vue";
+import CashPage from "../components/references/AdminCashesTable.vue";
+import ClientSale from "../components/operations/ClientSaleTable.vue";
+import SalePage from "../components/operations/SalesTable.vue";
 
 import ExpenseOrdersTable from "../components/financial_orders/ExpenseOrdersTable.vue";
 import IncomeOrdersTable from "../components/financial_orders/IncomeOrdersTable.vue";
@@ -36,6 +36,9 @@ import IncomeOrderCreate from "../components/financial_orders/IncomeOrderCreate.
 import ExpenseOrderCreate from "../components/financial_orders/ExpenseOrderCreate.vue";
 import InvoicePage from "../components/invoices/InvoicePage.vue";
 import InvoiceDetails from "../components/invoices/InvoiceDetails.vue";
+import RequestsPage from "../components/requests/RequestsPage.vue";
+import RequestDetails from "../components/requests/RequestDetails.vue";
+import SubProductCardsTable from "../components/references/SubProductCardsTable.vue";
 
 export default [
   { path: "/", redirect: "/dashboard" }, // Default to the dashboard
@@ -52,7 +55,7 @@ export default [
   { path: "/accounts", component: Accounts, name: "accounts" },
   { path: "/reports", component: Reports, name: "reports" },
   { path: "/client-debts", component: CustomerDebtReport, name: "client-debts" },
-  { path: "/receive", component: ReceiveProducts, name: "receive" },
+  { path: "/receive", component: ReceiptProducts, name: "receive" },
   { path: "/operation-history", component: OperationHistory, name: "operation-history" },
   { path: "/test", component: TestProducts, name: "test" },
   { path: "/tariff-plan", component: TariffPlan, name: "tariff-plan" },
@@ -64,6 +67,8 @@ export default [
   { path: "/expense", component: ExpensePage, name: "expense" },
 
   { path: "/product-card", component: ProductCardPage, name: "product-card" },
+  { path: "/subproduct-card", component: SubProductCardsTable, name: "subproduct-card" },
+
 
   { path: "/address", component: AddressPage, name: "address" },
 
@@ -86,5 +91,7 @@ export default [
   { path: "/invoice", component: InvoicePage, name: "invoice" },
 //   { path: "/invoice-create",  component: InvoiceCreate, name: "invoice-create" }, // если форма создания уже сделана
   { path: "/invoice/:id",    component:  InvoiceDetails,     name: "invoice-details", props: true },
+  { path: "/requests", component: RequestsPage, name: "requests" },
+  { path: "/request/:id",    component:  RequestDetails,     name: "request-details", props: true },
 
 ];

@@ -53,9 +53,14 @@ use App\Models\FinancialOrder;
     /**
      * Courier Routes
      */
+    Route::middleware(['auth:sanctum', 'role:courier,superadmin,packer,admin,storager,cashbox'])->group(function () {
+    Route::post('/send-message', [ChatController::class, 'sendMessage']);
+    Route::get('messages', [ChatController::class, 'getMessages']);
+
+    });
+
+
     Route::middleware(['auth:sanctum', 'role:courier,superadmin'])->group(function () {
-        Route::post('/send-message', [ChatController::class, 'sendMessage']);
-        Route::get('messages', [ChatController::class, 'getMessages']);
 
     Route::get('getCourierOrders', [CourierController::class, 'getCourierOrders']);
     Route::post('storeCourierDocument', [CourierController::class, 'storeCourierDocument']);
@@ -100,7 +105,7 @@ use App\Models\FinancialOrder;
    /**
     * Admin Routes
     */
-    Route::middleware(['auth:sanctum', 'role:admin,superadmin,storager,packer'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:admin,superadmin,storager,packer,cashbox'])->group(function () {
    /**
     * Product Cards
     */
@@ -202,6 +207,11 @@ use App\Models\FinancialOrder;
     Route::put('/updateIncome/{id}', [ProductController::class, 'updateMobileIncome']);
 
 
+    Route::get   ('/reference/expense-name',           [ReferenceController::class,'listExpenseNames']);
+    Route::post  ('/reference/expense-name',           [ReferenceController::class,'storeExpenseName']);
+    Route::patch ('/reference/expense-name/{id}',      [ReferenceController::class,'updateExpenseName']);
+    Route::delete('/reference/expense-name/{id}',      [ReferenceController::class,'destroyExpenseName']);
+
     /**
     * References
     */
@@ -211,11 +221,11 @@ use App\Models\FinancialOrder;
     Route::get('/references/{type}/{id}', [ReferenceController::class, 'fetchOne']);
     Route::delete('/references/{type}/{id}', [ReferenceController::class, 'destroyOne']);
     Route::patch('/references',               [ReferenceController::class, 'bulkUpdate']);      // массив разных типов
-Route::patch('/references/{type}',        [ReferenceController::class, 'bulkUpdate']);      // массив одного типа
+    Route::patch('/references/{type}',        [ReferenceController::class, 'bulkUpdate']);      // массив одного типа
 
-Route::get('counterparty', [ReferenceController::class,'counterparties']);
-Route::get('invoices', [InvoiceController::class,'index']);
-Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
+    Route::get('counterparty', [ReferenceController::class,'counterparties']);
+    Route::get('invoices', [InvoiceController::class,'index']);
+    Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
 
     Route::get('getStorageUsers',[StorageController::class,'getStorageUsers']);
    // Инициализация для перемещения (получение остатков "От кого" user)
@@ -272,7 +282,7 @@ Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
     });
 
     // общая ветка склада и админа
-    Route::middleware(['auth:sanctum', 'role:storager,admin,superadmin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:storager,admin,superadmin,cashbox'])->group(function () {
         Route::get('getWarehouses',[WarehousesController::class, 'getWarehouses']);
         Route::get('/documents/{document}', [ProductController::class, 'show']);
         Route::get('getWarehouseDetails', [WarehousesController::class, 'getWarehouseDetails']);
@@ -281,7 +291,7 @@ Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
     /**
      * Client & Admin (shared) Routes
      */
-    Route::middleware(['auth:sanctum', 'role:client,admin,superadmin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'role:client,admin,superadmin,cashbox'])->group(function () {
         Route::get('getClientAdresses',[AddressController::class, 'getClientAddresses']);
         Route::get('sales', [SalesClientController::class, 'getSalesWithDetails']);
 
@@ -298,6 +308,9 @@ Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
     Route::get('/product_cards_for_clientpage', [ProductCardController::class, 'getCardProducts']);
     Route::put('/orders/{orderId}/confirm', [OrderController::class, 'confirmOrder'])->whereUuid('orderId');
     Route::get('/client-orders', [ClientController::class, 'getClientOrders']);
+    Route::get('/client-orders', [ClientController::class, 'getClientOrders']);
+
+
 
     // Basket
     Route::get('basket', [BasketController::class, 'index']);
@@ -343,7 +356,7 @@ Route::get('/invoices/{order}',   [InvoiceController::class, 'show']);
 /**
  * Packer Routes
  */
-Route::middleware(['auth:sanctum', 'role:packer,superadmin'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:packer,superadmin,admin,cashbox,storager'])->group(function () {
     Route::get('history_orders', [OrderController::class, 'getHistoryOrders']);
     Route::get('/packer_document/{id}', [PackerController::class, 'get_packer_document']);
 
@@ -422,7 +435,7 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
 /**
  * Twilio Verification (HEAD)
  */
-Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
+// Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
     Route::middleware(['auth:sanctum', 'role:superadmin,admin,cashbox,storager,client'])->group(function () {
 
     Route::get('/financial-summary', [FinancialSummaryController::class, 'summary']);
@@ -513,15 +526,18 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
 
     // продажа
 
-    Route::get('sales-products',[SalesIncomesController::class,'indexSales']);
-    Route::post('sales-products',[SalesIncomesController::class,'postSales']);
-    Route::put('/sales-products/{document}', [SalesIncomesController::class, 'updateSales'])
-     ->whereUuid('document');
+    Route::get   ('sales-products',            [SalesIncomesController::class,'indexSales']);
+    Route::post  ('sales-products',            [SalesIncomesController::class,'postSales']);      // ← станет «черновик»
+    Route::post  ('sales-products-web',        [SalesIncomesController::class,'postSalesWeb']);
+    Route::put   ('/sales-products/{document}',[SalesIncomesController::class,'updateSales'])
+                 ->whereUuid('document');
+    Route::delete('/sales-products/{document}',[SalesIncomesController::class,'destroySales'])
+                 ->whereUuid('document');
 
-    Route::delete('/sales-products/{document}',        // URL
-    [SalesIncomesController::class,'destroySales'])   // method
-    ->whereUuid('document');
-
+    /* — новые — */
+    Route::get  ('/my-sales',                          [SalesIncomesController::class,'mySales']);
+    Route::post ('/sales-products/{document}/confirm', [SalesIncomesController::class,'confirmSale'])
+           ->whereUuid('document');
     // списание
     Route::post('writeoff-products',[WriteoffIncomesController::class,'postWriteOff']);
     Route::put('/writeoff-products/{document}', [WriteoffIncomesController::class, 'updateWriteOff'])
