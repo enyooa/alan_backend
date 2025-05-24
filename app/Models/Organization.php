@@ -28,20 +28,23 @@ class Organization extends Model
     {
         static::creating(fn ($org) => $org->id ??= (string) Str::uuid());
     }
-    public function activePlan()      // returns a single Plan model
-    {
-        return $this->belongsToMany(Plan::class, 'organization_plan')
-                    ->wherePivot('starts_at','<=',now())
-                    ->where(function ($q) {
-                        $q->whereNull('ends_at')
-                          ->orWhere('ends_at','>',now());
-                    })
-                    ->withPivot('starts_at','ends_at')
-                    ->first();
-    }
-    // app/Models/Organization.php
-// app/Models/Organization.php
-// app/Models/Organization.php
+        public function activePlan()
+{
+    return $this->belongsToMany(Plan::class, 'organization_plan')
+        ->withPivot(['starts_at', 'ends_at'])
+        ->wherePivot('starts_at','<=', now())
+        ->where(function ($q) {
+            $q->whereNull('organization_plan.ends_at')
+              ->orWhere('organization_plan.ends_at', '>=', now());
+        })
+        ->first();          // ← единственный активный план
+}
+    public function planPermissionCodes(): array
+{
+    $plan = $this->activePlan();          // null → []
+    return $plan ? $plan->permissions->pluck('code')->all() : [];
+}
+
 public function activePlans()                    // <-- relation (many)
 {
     return $this->belongsToMany(Plan::class, 'organization_plan')
@@ -87,6 +90,9 @@ public function getPermissionsAttribute()
     return optional($activePlan)->permissions ?: collect();
 }
 
-
+public function scopeForOrg($query, $orgId)
+{
+    return $query->where('organization_id', $orgId);
+}
 
 }

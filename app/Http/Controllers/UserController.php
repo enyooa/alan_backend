@@ -19,20 +19,23 @@ use Illuminate\Http\JsonResponse;
 class UserController extends Controller
 {
     // Get all users (only accessible by admin)
-    public function index()
+    public function index(Request $request): JsonResponse
 {
-    // $users = User::with('roles')
-    //     ->whereDoesntHave('roles', function ($query) {
-    //         $query->where('name', 'admin');
-    //     })
-    //     ->get();
-    $users = User::with([
-        'roles:id,name',             // только нужные поля
-        'permissions:id,name,code'   //   — // —
-    ])->get();
+    $orgId = Auth::user()->organization_id;   // ← always this org
+
+    $users = User::query()
+        ->where('organization_id', $orgId)        // tenant guard
+        ->with([
+            'roles:id,name',
+            'permissions:id,name,code',
+        ])
+        // ->orderBy('first_name')                   // optional sort
+        ->paginate(20)      // 20 (default) or 10
+        ->appends($request->query());             // keeps ?page, ?per_page
 
     return response()->json($users);
 }
+
 
     // админ присвоет роль
     public function assignRoles(Request $request, User $user)
@@ -78,11 +81,9 @@ public function removeRole(Request $request, User $user)
             'first_name'            => 'required|string',
             'last_name'             => 'nullable|string',
             'surname'               => 'nullable|string',
-        'whatsapp_number'       => 'required|unique:users,whatsapp_number',
+            'whatsapp_number'       => 'required|unique:users,whatsapp_number',
             'role'                  => 'required|in:admin,client,cashbox,packer,storager,courier',
             'password'              => 'required|string|min:6',
-
-            /* склад (для storager / packer / courier) */
             'warehouse_name'        => 'nullable|string',
             'existing_warehouse_id' => 'nullable|uuid|exists:warehouses,id',
         ],
@@ -90,10 +91,7 @@ public function removeRole(Request $request, User $user)
         /* ключ строится как: "<поле>.<правило>" */
         'whatsapp_number.required' => 'Поле «WhatsApp‑номер» обязательно.',
         'whatsapp_number.unique'   => 'Пользователь с таким WhatsApp‑номером уже существует.',
-    ]
-
-
-    );
+        ]);
 
         $orgId = $request->user()->organization_id;        // организация текущего админа
 
@@ -251,8 +249,70 @@ public function removeRole(Request $request, User $user)
         return response()->json($users, 200);
     }
 
+// public function stuff(): JsonResponse
+// {
+//     $rels = [
+//         'roles:id,name',
+//         'permissions:id,code,name',
+//         'roles.permissions:id,code,name',
+//         'organization.activePlans.permissions:id,code,name',
+//     ];
+
+//     // ------ группа «Без ролей»
+//     $noRoleUsers = User::doesntHave('roles')
+//         ->with($rels)->get()
+//         ->map(fn ($u) => $this->payload($u));
+
+//     $noRolePerms = $noRoleUsers->flatMap(fn ($u) => $u['permissions'])
+//                                ->unique('id')->values();
+
+//     $groups = collect([[
+//         'role'        => 'Без ролей',
+//         'users'       => $noRoleUsers,
+//         'permissions' => $noRolePerms,
+//     ]]);
+
+//     // ------ реальные роли
+//     $roles = Role::with(['users' => fn ($q) => $q->with($rels)])
+//                  ->orderBy('name')->get();
+
+//     foreach ($roles as $r) {
+//         $groups->push([
+//             'role'  => $r->name,
+//             'users' => $r->users->map(fn ($u) => $this->payload($u)),
+//         ]);
+//     }
+
+//     return response()->json($groups->values(), 200);
+// }old version
+// private function payload(User $u): array
+// {
+//     return [
+//         'id'         => $u->id,
+//         'first_name' => $u->first_name,
+//         'last_name'  => $u->last_name,
+//         'surname'    => $u->surname,
+//         'whatsapp'   => $u->whatsapp_number,
+//         'roles'      => $u->roles->pluck('name')->values()->all(),
+//         'permissions'=> $u->allPermissions()
+//                          ->map(fn ($p)=>['id'=>$p->id,'code'=>$p->code,'name'=>$p->name])
+//                          ->values()->all(),
+//     ];
+// }oldversion
+
 public function stuff(): JsonResponse
 {
+    /** @var User $actor */
+    $actor   = auth()->user();
+    $isSuper = $actor && $actor->hasRole('superadmin');
+    $orgId   = $actor->organization_id;        // ← current tenant
+
+    /* ── тариф-коды, как было ───────────────────────────────── */
+    $planCodes = $isSuper || ! $actor->organization
+        ? null
+        : collect($actor->organization->planPermissionCodes())->unique();
+
+    /* ── eager relations  ───────────────────────────────────── */
     $rels = [
         'roles:id,name',
         'permissions:id,code,name',
@@ -260,13 +320,21 @@ public function stuff(): JsonResponse
         'organization.activePlans.permissions:id,code,name',
     ];
 
-    // ------ группа «Без ролей»
-    $noRoleUsers = User::doesntHave('roles')
-        ->with($rels)->get()
-        ->map(fn ($u) => $this->payload($u));
+    /* =========================================================
+       ГРУППА «БЕЗ РОЛЕЙ»
+    ========================================================= */
+    $noRoleUsers = User::query()
+        ->where('organization_id', $orgId)     // ← tenant guard
+        ->doesntHave('roles')
+        ->with($rels)
+        ->get()
+        ->map(fn ($u) => $this->payload($u, $planCodes));
 
-    $noRolePerms = $noRoleUsers->flatMap(fn ($u) => $u['permissions'])
-                               ->unique('id')->values();
+    $noRolePerms = $noRoleUsers
+        ->flatMap(fn ($u) => $u['permissions'])
+        ->when($planCodes, fn ($c) => $c->whereIn('code', $planCodes))
+        ->unique('id')
+        ->values();
 
     $groups = collect([[
         'role'        => 'Без ролей',
@@ -274,35 +342,81 @@ public function stuff(): JsonResponse
         'permissions' => $noRolePerms,
     ]]);
 
-    // ------ реальные роли
-    $roles = Role::with(['users' => fn ($q) => $q->with($rels)])
-                 ->orderBy('name')->get();
+    /* =========================================================
+       РЕАЛЬНЫЕ РОЛИ
+    ========================================================= */
+    $roles = Role::query()
+        ->with([
+            'users' => function ($q) use ($orgId, $rels) {
+                $q->where('organization_id', $orgId)   // ← tenant guard
+                  ->with($rels);
+            },
+            'permissions',
+        ])
+        ->whereHas('users', fn ($q) => $q->where('organization_id', $orgId))
+        ->orderBy('name')
+        ->get()
+        ->filter(function ($role) use ($planCodes, $isSuper) {
+            if ($isSuper || ! $planCodes) return true;
+            return $role->permissions
+                         ->pluck('code')
+                         ->diff($planCodes)
+                         ->isEmpty();
+        });
 
     foreach ($roles as $r) {
         $groups->push([
             'role'  => $r->name,
-            'users' => $r->users->map(fn ($u) => $this->payload($u)),
+            'users' => $r->users
+                         ->map(fn ($u) => $this->payload($u, $planCodes)),
         ]);
     }
 
     return response()->json($groups->values(), 200);
 }
 
-/** единичный пользователь в формате, который ждёт Vue */
-private function payload(User $u): array
+
+/* ----------------------------------------------------------------
+ * $planCodes === null  → без фильтра (суперадмин)
+ * $planCodes === Collection<int> → оставляем только то, что в тарифе
+ * ---------------------------------------------------------------- */
+private function payload(User $u, $planCodes): array
 {
+    $perms = $u->allPermissions()
+               ->when($planCodes, fn ($c) => $c->whereIn('code', $planCodes))
+               ->map(fn ($p) => [
+                   'id'   => $p->id,
+                   'code' => $p->code,
+                   'name' => $p->name,
+               ])
+               ->values()
+               ->all();
+
+    // роли фильтруем аналогично (чтобы не засвечивать «чужие»)
+    $roles = collect($u->roles)
+             ->when($planCodes, function ($coll) use ($planCodes) {
+                 return $coll->filter(function ($role) use ($planCodes) {
+                     return $role->permissions
+                                 ->pluck('code')
+                                 ->diff($planCodes)
+                                 ->isEmpty();
+                 });
+             })
+             ->pluck('name')
+             ->values()
+             ->all();
+
     return [
         'id'         => $u->id,
         'first_name' => $u->first_name,
         'last_name'  => $u->last_name,
         'surname'    => $u->surname,
         'whatsapp'   => $u->whatsapp_number,
-        'roles'      => $u->roles->pluck('name')->values()->all(),
-        'permissions'=> $u->allPermissions()
-                         ->map(fn ($p)=>['id'=>$p->id,'code'=>$p->code,'name'=>$p->name])
-                         ->values()->all(),
+        'roles'      => $roles,
+        'permissions'=> $perms,
     ];
 }
+/** единичный пользователь в формате, который ждёт Vue */
 
 
 

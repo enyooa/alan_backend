@@ -35,4 +35,11 @@ class Role extends Model
         return $this->belongsToMany(Permission::class, 'permission_role');
     }
 
+        public function allowedForPlan(array $planCodes): bool
+    {
+        return $this->permissions->pluck('code')
+                ->diff($planCodes)      // empty ⇒ role ⊆ plan
+                ->isEmpty();
+    }
+
 }

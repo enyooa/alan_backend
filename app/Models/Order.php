@@ -61,5 +61,8 @@ public function organization()
     return $this->belongsTo(\App\Models\Organization::class, 'organization_id')
                 ->select('id', 'name');       // только нужные поля
 }
-
+public function scopeForOrg($query, $orgId)
+{
+    return $query->where('organization_id', $orgId);
+}
 }

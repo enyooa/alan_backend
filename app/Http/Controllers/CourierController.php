@@ -17,61 +17,61 @@ use Illuminate\Support\Facades\Log;
 class CourierController extends Controller
 {
     public function getCourierOrders(Request $request)
-    {
-        $courierId = $request->user()->id;
-// $tenantId = $request->user()->tenant_id;
-        // 1. Fetch courier orders
-        $orders = Order::with([
+{
+    $orgId     = $request->user()->organization_id;   // ← your org
+    $courierId = $request->user()->id;                // ← current courier
+
+    $orders = Order::forOrg($orgId)                   // 👈 NEW SCOPE
+        ->with([
             'orderProducts.productSubCard.productCard',
             'packer:id,first_name,last_name,photo',
-                    'courier:id,first_name,last_name,photo',
-                    'client:id,first_name,last_name',
-                    'statusDoc:id,name',
+            'courier:id,first_name,last_name,photo',
+            'client:id,first_name,last_name',
+            'statusDoc:id,name',
+        ])
+        ->whereNotNull('packer_id')
+        // ->where('courier_id', $courierId)          // add if you only want “my” orders
+        ->latest()
+        ->get();
 
-            ])
-            ->whereNotNull('packer_id')
-            // ->where('tenant_id')
-            ->orderBy('created_at', 'desc')
-            ->get();
+    $statuses = StatusDoc::select('id', 'name')->get();
 
-        // 2. Also fetch statuses from status_docs
-        $statuses = StatusDoc::select('id','name')->get();
+    return response()->json([
+        'success'  => true,
+        'orders'   => $orders,
+        'statuses' => $statuses,
+    ]);
+}
 
-        return response()->json([
-            'success'  => true,
-            'orders'   => $orders,
-            'statuses' => $statuses,
-        ]);
-    }
 
 
 
 
 public function getCourierOrderDetails(Request $request, $orderId)
 {
-    // Log::info('Fetching details for order ID: ' . $orderId . ' by user ID: ' . $request->user()->id);
-    // $courierId = Auth::id(); // Get the authenticated courier's ID
+    $orgId = $request->user()->organization_id;
 
-    $order = Order::where('id', $orderId)
-        // ->where('courier_id', $courierId) // Ensure the order is assigned to the courier
+    $order = Order::forOrg($orgId)        // 👈 ensure same org
+        ->where('id', $orderId)
         ->with([
-            'orderProducts.productSubCard.productCard', // Include product details
-            'orderProducts.source', // Include the source relationship if needed
+            'orderProducts.productSubCard.productCard',
+            'orderProducts.source',
         ])
         ->first();
 
-    if (!$order) {
+    if (! $order) {
         return response()->json([
             'success' => false,
-            'message' => 'Order not found or not authorized to view',
+            'message' => 'Order not found or not authorized to view.',
         ], 404);
     }
 
     return response()->json([
         'success' => true,
-        'data' => $order,
+        'data'    => $order,
     ]);
 }
+
 
 
     /**

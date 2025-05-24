@@ -41,9 +41,7 @@ use App\Http\Controllers\WriteoffIncomesController;
 use App\Http\Controllers\TransferIncomesController;
 use App\Http\Controllers\AdminCashController;
 use App\Http\Controllers\InvoiceController;
-
-
-
+use App\Http\Controllers\PlanController;
 use App\Models\FinancialOrder;
 
     /**
@@ -53,10 +51,20 @@ use App\Models\FinancialOrder;
     /**
      * Courier Routes
      */
+
+    Route::get ('/plans',        [PlanController::class,'index']);
+
     Route::middleware(['auth:sanctum', 'role:courier,superadmin,packer,admin,storager,cashbox'])->group(function () {
     Route::post('/send-message', [ChatController::class, 'sendMessage']);
     Route::get('messages', [ChatController::class, 'getMessages']);
+    
+    Route::get ('/plans',        [PlanController::class,'index']);
+    Route::get ('/my/plan',      [PlanController::class,'current']);
+    Route::post('/my/plan/{plan}',[PlanController::class,'change']);
 
+    /* только роль superadmin может менять тариф */
+    Route::post('/my/plan/{plan}',[PlanController::class,'change'])
+          ->middleware('role:superadmin');
     });
 
 
@@ -470,7 +478,9 @@ Route::get('/unit-measurements', [UnitMeasurementController::class, 'index']);
 
     // сотрудники
     Route::get('stuff', [UserController::class, 'stuff']);
-    Route::put('/users/{user}/roles-permissions', [UserController::class,'updateStuff']);
+    Route::middleware(['auth:sanctum', 'withinPlan'])
+      ->put('/users/{user}/roles-permissions',
+            [UserController::class,'updateStuff']);
     Route::get('plans', [UserController::class, 'plans']);
     Route::get('me', [UserController::class, 'me']);
 

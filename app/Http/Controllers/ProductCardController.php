@@ -21,6 +21,7 @@ class ProductCardController extends Controller
      */
     public function store(Request $request)
 {
+    Log::info($request->all());
     try {
         $validated = $request->validate([
             'name_of_products' => 'required|string|max:255',

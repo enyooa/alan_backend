@@ -1,21 +1,19 @@
 <template>
   <div class="expense-page">
-    <!-- ▸ TOP-BAR ------------------------------------------------------- -->
+    <!-- ▸ TOP-BAR -->
     <header class="topbar">
       <h1>Ценовые предложения</h1>
 
       <div class="actions">
-        <input
-          v-model.trim="search"
-          @input="applyFilter"
-          placeholder="🔍 Поиск..."
-          class="search"
-        />
+        <input v-model.trim="search"
+               @input="applyFilter"
+               placeholder="🔍 Поиск..."
+               class="search" />
         <button class="reload" @click="load">⟳</button>
       </div>
     </header>
 
-    <!-- ▸ TABLE -------------------------------------------------------- -->
+    <!-- ▸ TABLE -->
     <table class="orders">
       <thead>
         <tr>
@@ -30,23 +28,19 @@
       </thead>
 
       <tbody>
-        <tr
-          v-for="(p, idx) in view"
-          :key="p.id"
-          class="click-row"
-          @click="openEdit(p)"
-        >
-          <td>{{ idx + 1 }}</td>
-          <td class="title">
-            {{ (p.client && (p.client.first_name + ' ' + p.client.last_name)) || '—' }}
-          </td>
-          <td>{{ (p.address && p.address.name) || '—' }}</td>
-          <td>{{ (p.warehouse && p.warehouse.name) || '—' }}</td>
+        <tr v-for="(p,idx) in view"
+            :key="p.id"
+            class="click-row"
+            @click="openEdit(p)">
+          <td>{{ (currentPage-1)*perPage + idx + 1 }}</td>
+          <td class="title">{{ p.clientFull }}</td>
+          <td>{{ p.addrName }}</td>
+          <td>{{ p.whName }}</td>
           <td>{{ period(p) }}</td>
           <td class="num">{{ money(p.totalsum) }}</td>
           <td class="num actions" @click.stop>
             <button class="icon-btn" @click="openEdit(p)">✏️</button>
-            <button class="icon-btn danger" @click="remove(p, idx)">🗑</button>
+            <button class="icon-btn danger" @click="remove(p,idx)">🗑</button>
           </td>
         </tr>
 
@@ -56,104 +50,106 @@
       </tbody>
     </table>
 
-    <!-- ▸ CREATE BTN --------------------------------------------------- -->
-    <button class="create-btn" @click="showCreate = true">
+    <!-- ▸ CREATE BTN -->
+    <button class="create-btn" @click="showCreate=true">
       ➕ Создать ценовое предложение
     </button>
 
-    <!-- ▸ CREATE MODAL ------------------------------------------------- -->
+    <!-- ▸ CREATE MODAL -->
     <div v-if="showCreate" class="modal-overlay">
       <div class="modal-container">
-        <button class="close-btn" @click="showCreate = false">×</button>
-        <PriceOfferPage @saved="onSaved" @close="showCreate = false" />
+        <button class="close-btn" @click="showCreate=false">×</button>
+        <PriceOfferPage @saved="onSaved" @close="showCreate=false" />
       </div>
     </div>
 
-    <!-- ▸ EDIT MODAL --------------------------------------------------- -->
+    <!-- ▸ EDIT MODAL -->
     <ModalShell v-if="showEdit" @close="closeEdit">
-      <EditPriceOfferModal
-    :record="editDoc"
-    @close="closeEdit"
-    @saved="onSaved"
-  />
+      <EditPriceOfferModal :record="editDoc"
+                           @close="closeEdit"
+                           @saved="onSaved"/>
     </ModalShell>
   </div>
 </template>
 
 <script>
-import axios from '@/plugins/axios'
+import axios                from '@/plugins/axios'
+import PriceOfferPage       from '../../views/PriceOfferPage.vue'
+import EditPriceOfferModal  from '../../views/forms/products/PriceOfferEdit.vue'
+import ModalShell           from '../../views/forms/products/ModalShell.vue'
 
-/* create / edit */
-import PriceOfferPage from '../../views/PriceOfferPage.vue'
-import EditPriceOfferModal from '../../views/forms/products/PriceOfferEdit.vue'
-import ModalShell from '../../views/forms/products/ModalShell.vue'
 export default {
-  name: 'PriceOffersPage',
-  components: { PriceOfferPage, EditPriceOfferModal, ModalShell },
+  components:{ PriceOfferPage, EditPriceOfferModal, ModalShell },
 
-  data () {
-    return {
-      raw        : [],
-      view       : [],
-      search     : '',
-      showCreate : false,
-      showEdit   : false,
-      editDoc    : null
+  data(){
+    return{
+      raw:[], view:[], search:'',
+      showCreate:false, showEdit:false, editDoc:null,
+      currentPage:1, perPage:25
     }
   },
 
-  created () { this.load() },
+  created(){ this.load() },
 
-  methods: {
-    /* ─── API ─────────────────────────────────────────────── */
-    async load () {
-      try {
-        /* API возвращает пагинацию; берём .data */
-        const { data } = await axios.get('/api/price-offers')
-        this.raw = Array.isArray(data.data) ? data.data : []
+  methods:{
+    async load(){
+      try{
+        const { data } = await axios.get('/api/price-offers',{ params:{ paginate:1 } })
+
+        const list = Array.isArray(data) ? data : (data.data || [])
+
+        this.raw = list.map(r=>({
+          ...r,
+          clientFull : r.client ? [r.client.first_name, r.client.last_name]
+                                   .filter(Boolean).join(' ') : '—',
+          addrName   : r.address?.name   ?? '—',
+          whName     : r.warehouse?.name ?? '—',
+          totalsum   : +r.totalsum
+        }))
+
+        if(Array.isArray(data.data)){
+          this.currentPage = +data.current_page
+          this.perPage     = +data.per_page
+        }else{
+          this.currentPage = 1
+          this.perPage     = this.raw.length || 1
+        }
+
         this.applyFilter()
-      } catch (e) { console.error(e); alert('Не удалось загрузить данные') }
+      }catch(e){ console.error(e); alert('Не удалось загрузить данные') }
     },
 
-    /* ─── фильтр / поиск ──────────────────────────────────── */
-    applyFilter () {
-      const q = this.search.toLowerCase()
-      this.view = !q
-        ? this.raw
-        : this.raw.filter(p =>
-            [
-              p.client && p.client.first_name,
-              p.client && p.client.last_name,
-              p.address && p.address.name,
-              p.warehouse && p.warehouse.name,
-              this.period(p)
-            ]
-            .join(' ')
-            .toLowerCase()
-            .includes(q)
-          )
+    applyFilter(){
+      const q=this.search.toLowerCase()
+      this.view = !q ? this.raw
+                     : this.raw.filter(p=>
+                         [p.clientFull,p.addrName,p.whName,this.period(p)]
+                         .join(' ').toLowerCase().includes(q))
     },
 
-    /* ─── helpers ─────────────────────────────────────────── */
-    money (v)   { return Number(v || 0).toLocaleString('ru-RU') },
-    period (p)  { return (p.start_date || '') + ' – ' + (p.end_date || '') },
+    money(v){ return (+v||0).toLocaleString('ru-RU') },
+    period(p){
+      const f=d=>d?new Date(d).toLocaleDateString():'—'
+      return `${f(p.start_date)} – ${f(p.end_date)}`
+    },
 
-    /* ─── create / edit ───────────────────────────────────── */
-    onSaved ()  { this.showCreate = false; this.closeEdit(); this.load() },
-    openEdit (p){ this.editDoc = p; this.showEdit = true },
-    closeEdit (){ this.showEdit  = false; this.editDoc = null },
+    onSaved(){ this.showCreate=false; this.closeEdit(); this.load() },
+    openEdit(p){ this.editDoc=p; this.showEdit=true },
+    closeEdit(){ this.showEdit=false; this.editDoc=null },
 
-    /* ─── delete ─────────────────────────────────────────── */
-    async remove (p, idx) {
-      if (!confirm('Удалить предложение?')) return
-      try {
+    async remove(p,idx){
+      if(!confirm('Удалить предложение?')) return
+      try{
         await axios.delete(`/api/price-offers/${p.id}`)
-        this.raw.splice(idx, 1); this.applyFilter()
-      } catch (e) { alert('Не удалось удалить') }
+        this.raw.splice(idx,1); this.applyFilter()
+      }catch(e){ alert('Не удалось удалить') }
     }
   }
 }
 </script>
+
+
+
 <style scoped>
 /* базовый интерфейс (цвета и стили FinancialExpenseOrders) */
 .expense-page{font-family:Inter,sans-serif;padding:18px}

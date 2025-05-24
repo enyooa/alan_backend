@@ -1,51 +1,47 @@
 <template>
-    <div :class="['tariff-card', { popular: plan.popular, current: isCurrent }]">
-      <div class="head">
-        <h3 class="name">{{ plan.name }}</h3>
-        <span v-if="plan.popular" class="badge">Популярный</span>
-      </div>
-
-      <p class="price">
-        <strong v-if="plan.price">{{ plan.price.toLocaleString() }} ₸</strong>
-        <strong v-else>Бесплатно</strong>
-        <small v-if="!plan.price"> / навсегда</small>
-      </p>
-
-      <ul class="services">
-        <li v-for="s in plan.services" :key="s">
-          <i class="pi pi-check" /> {{ s }}
-        </li>
-      </ul>
-
-      <button
-        v-if="plan.price === 0 && !isCurrent"
-        class="btn select"
-        @click="$emit('select', plan)"
-      >
-        Выбрать
-      </button>
-
-      <button
-        v-else-if="plan.price && !isCurrent"
-        class="btn pay"
-        @click="$emit('pay', plan)"
-      >
-        Оплатить
-      </button>
-
-      <span v-else class="current-label">Ваш тариф</span>
+  <div :class="['tariff-card',{ popular:plan.popular, current:isCurrent }]">
+    <div class="head">
+      <h3 class="name">{{ plan.name }}</h3>
+      <span v-if="plan.popular" class="badge">Популярный</span>
     </div>
-  </template>
 
-  <script>
-  export default {
-    name: 'TariffCard',
-    props: {
-      plan:       { type: Object, required: true },
-      isCurrent:  { type: Boolean, default: false },
-    },
-  };
-  </script>
+    <p class="price">
+      <strong v-if="plan.price">{{ money(plan.price) }}</strong>
+      <strong v-else>Бесплатно</strong>
+      <small v-if="!plan.price"> / навсегда</small>
+    </p>
+
+    <ul class="services">
+      <li v-for="p in plan.permissions" :key="p.id">
+        <i class="pi pi-check" /> {{ p.name }}
+      </li>
+    </ul>
+
+    <!-- кнопки -->
+    <button v-if="!isCurrent" class="btn select"
+            @click="$emit('select',plan)">
+      {{ plan.price ? 'Оплатить' : 'Выбрать' }}
+    </button>
+
+    <span v-else class="current-label">Ваш тариф</span>
+  </div>
+</template>
+
+<script>
+export default {
+  name : 'TariffCard',
+  props:{
+    plan      : { type:Object,  required:true },
+    isCurrent : { type:Boolean, default:false },
+  },
+  methods:{ money(n){return n.toLocaleString()+' ₸'} }
+}
+</script>
+
+<style scoped>
+/* карточка из предыдущего ответа – сократил для краткости */
+</style>
+
 
   <style>
   .tariff-card{

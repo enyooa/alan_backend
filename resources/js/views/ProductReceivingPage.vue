@@ -1,558 +1,391 @@
-<!-- src/pages/ProductReceivingPage.vue -->
 <template>
-    <div class="full-page">
-      <main class="content">
-        <h2 class="page-title">Поступление товара</h2>
+  <div class="full-page">
+    <main class="content">
+      <h2 class="page-title">Поступление товара</h2>
 
-        <!-- ────────── Карточка выбора: поставщик • дата • склад ────────── -->
-        <div class="card">
-          <div class="card-header"><h3>Выберите поставщика, дату и склад</h3></div>
-          <div class="card-body">
-            <div class="flex-row">
-              <!-- Поставщик -->
-              <div class="dropdown">
-                <label for="provider" class="field-label">Поставщик</label>
-                <select v-model="selectedProviderId"
-                        id="provider"
-                        class="dropdown-select">
-                  <option disabled value="">— Выберите поставщика —</option>
-                  <option v-for="p in providers" :key="p.id" :value="p.id">
-                    {{ p.name }}
-                  </option>
-                </select>
-              </div>
+      <!-- ▸ Поставщик / Дата / Склад -->
+      <div class="card">
+        <div class="card-header"><h3>Выберите поставщика, дату и склад</h3></div>
+        <div class="card-body">
+          <div class="flex-row">
+            <!-- Поставщик -->
+            <div class="dropdown">
+              <label class="field-label" for="provider">Поставщик</label>
+              <select v-model="selectedProviderId" id="provider" class="dropdown-select">
+                <option disabled value="">— Выберите поставщика —</option>
+                <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+            </div>
 
-              <!-- Дата -->
-              <div class="dropdown">
-                <label for="date" class="field-label">Дата</label>
-                <input type="date"
-                       v-model="selectedDate"
-                       id="date"
-                       class="dropdown-select" />
-              </div>
+            <!-- Дата -->
+            <div class="dropdown">
+              <label class="field-label" for="date">Дата</label>
+              <input type="date" v-model="selectedDate" id="date" class="dropdown-select" />
+            </div>
 
-              <!-- Склад -->
-              <div class="dropdown">
-                <label for="warehouse" class="field-label">Склад поступления</label>
-                <select v-model="selectedWarehouseId"
-                        id="warehouse"
-                        class="dropdown-select">
-                  <option disabled value="">— Выберите склад —</option>
-                  <option v-for="w in warehouses" :key="w.id" :value="w.id">
-                    {{ w.name }}
-                  </option>
-                </select>
-              </div>
+            <!-- Склад -->
+            <div class="dropdown">
+              <label class="field-label" for="warehouse">Склад поступления</label>
+              <select v-model="selectedWarehouseId" id="warehouse" class="dropdown-select">
+                <option disabled value="">— Выберите склад —</option>
+                <option v-for="w in warehouses" :key="w.id" :value="w.id">{{ w.name }}</option>
+              </select>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- ────────── Карточка «Товары» ────────── -->
-        <div class="card mt-3">
-          <div class="card-header flex-between">
-            <h3>Товары</h3>
-            <button @click="addProductRow" class="action-btn add-row-btn">➕ Добавить строку</button>
-          </div>
-
-          <div class="card-body">
-            <table class="styled-table">
-              <thead>
-                <tr>
-                  <th>Товар</th><th>Кол-во тары</th><th>Ед. изм / Тара</th>
-                  <th>Брутто</th><th>Нетто</th><th>Цена</th>
-                  <th>Сумма</th><th>Доп. расход</th><th>Себестоимость</th><th>Удалить</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr v-for="(row, idx) in productRows" :key="row._key" class="table-row">
-                  <!-- Товар -->
-                  <td>
-                    <select v-model="row.product_subcard_id" class="table-select">
-                      <option disabled value="">Выберите товар</option>
-                      <option v-for="prod in products" :key="prod.id" :value="prod.id">
-                        {{ prod.name }}
-                      </option>
-                    </select>
-                  </td>
-
-                  <!-- Кол-во тары -->
-                  <td>
-                    <input v-model.number="row.quantity" type="number"
-                           class="table-input" placeholder="Кол-во тары" />
-                  </td>
-
-                  <!-- Ед. изм -->
-                  <td>
-                    <select v-model="row.unit_measurement" class="table-select">
-                      <option disabled value="">Ед. изм / Тара</option>
-                      <option v-for="u in units"
-                              :key="u.id || (u.name + u.tare)"
-                              :value="u.name">
-                        {{ u.name }} ({{ u.tare }} г)
-                      </option>
-                    </select>
-                  </td>
-
-                  <!-- Брутто -->
-                  <td>
-                    <input v-model.number="row.brutto" type="number"
-                           class="table-input" placeholder="Брутто" />
-                  </td>
-
-                  <!-- Нетто -->
-                  <td>{{ calcNetto(row).toFixed(2) }}</td>
-
-                  <!-- Цена -->
-                  <td>
-                    <input v-model.number="row.price" type="number"
-                           class="table-input" placeholder="Цена" />
-                  </td>
-
-                  <!-- Сумма -->
-                  <td>{{ calcTotal(row).toFixed(2) }}</td>
-
-                  <!-- Доп. расход -->
-                  <td>{{ calcRowExpense(row).toFixed(2) }}</td>
-
-                  <!-- Себестоимость -->
-                  <td>{{ formatPrice(calcCostPrice(row)) }}</td>
-
-                  <!-- Удалить -->
-                  <td>
-                    <button @click="removeProductRow(idx)" class="remove-btn">❌</button>
-                  </td>
-                </tr>
-
-                <!-- Итоги -->
-                <tr class="summary-row">
-                  <td colspan="3" class="summary-label"><strong>ИТОГО</strong></td>
-                  <td>-</td>
-                  <td>{{ totalNetto.toFixed(2) }}</td>
-                  <td>-</td>
-                  <td>{{ totalSum.toFixed(2) }}</td>
-                  <td>{{ totalExpenses.toFixed(2) }}</td>
-                  <td>-</td><td>-</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      <!-- ▸ Таблица товаров -->
+      <div class="card mt-3">
+        <div class="card-header flex-between">
+          <h3>Товары</h3>
+          <button class="action-btn add-row-btn" @click="addProductRow">➕ Добавить строку</button>
         </div>
 
-        <!-- ────────── Карточка «Дополнительные расходы» ────────── -->
-        <div class="card mt-3">
-          <div class="card-header flex-between">
-            <h3>Дополнительные расходы</h3>
-            <button @click="addExpenseRow" class="action-btn add-row-btn">➕ Добавить расход</button>
-          </div>
+        <div class="card-body">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>Кол-во тары</th><th>Ед. изм / тара</th>
+                <th>Брутто</th><th>Нетто</th><th>Цена</th>
+                <th>Сумма</th><th>Доп. расход</th><th>Себестоимость</th><th></th>
+              </tr>
+            </thead>
 
-          <div class="card-body">
-            <table class="styled-table">
-              <thead>
-                <tr>
-                  <th>Наименование</th><th>Поставщик</th><th>Сумма</th><th>Удалить</th>
-                </tr>
-              </thead>
+            <tbody>
+              <tr v-for="(row, idx) in productRows" :key="row._key">
+                <!-- Товар -->
+                <td>
+                  <select v-model="row.product_subcard_id" class="table-select">
+                    <option disabled value="">Выберите товар</option>
+                    <option v-for="prod in products" :key="prod.id" :value="prod.id">
+                      {{ prod.name }}
+                    </option>
+                  </select>
+                </td>
 
-              <tbody>
-                <tr v-for="(ex, i) in expenses" :key="ex._key" class="table-row">
-                  <!-- Наименование -->
-                  <td>
-                    <select v-model="ex.expense_id" class="table-select"
-                            @change="onExpenseSelect(ex)">
-                      <option disabled value="">--- Выберите расход ---</option>
-                      <option v-for="e in allExpenses" :key="e.id" :value="e.id">
-                        {{ e.name }}
-                      </option>
-                    </select>
-                  </td>
+                <!-- Кол-во тары -->
+                <td>
+                  <input v-model.number="row.quantity"
+                         type="number"
+                         class="table-input"
+                         :disabled="isKg(row.unit_measurement)"
+                         :class="{disabled: isKg(row.unit_measurement)}" />
+                </td>
 
-                  <!-- Поставщик -->
-                  <td>
-                    <select v-model="ex.provider_id" class="table-select">
-                      <option disabled value="">— Поставщик —</option>
-                      <option v-for="p in providers" :key="p.id" :value="p.id">
-                        {{ p.name }}
-                      </option>
-                    </select>
-                  </td>
+                <!-- Ед. изм -->
+                <td>
+                  <select v-model="row.unit_measurement" class="table-select">
+                    <option disabled value="">Ед. изм / тара</option>
+                    <option v-for="u in units" :key="u.id" :value="u.name">
+                      {{ u.name }} ({{ u.tare }} г)
+                    </option>
+                  </select>
+                </td>
 
-                  <!-- Сумма -->
-                  <td>
-                    <input v-model.number="ex.amount" type="number"
-                           class="table-input" placeholder="Сумма" />
-                  </td>
+                <!-- Брутто -->
+                <td>
+                  <input v-model.number="row.brutto"
+                         type="number"
+                         class="table-input"
+                         :disabled="disableBrutto(row)"
+                         :class="{disabled: disableBrutto(row)}" />
+                </td>
 
-                  <!-- Удалить -->
-                  <td>
-                    <button @click="removeExpense(i)" class="remove-btn">❌</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                <!-- Нетто -->
+                <td>{{ calcNetto(row).toFixed(2) }}</td>
+
+                <!-- Цена -->
+                <td><input v-model.number="row.price" type="number" class="table-input" /></td>
+
+                <!-- Сумма -->
+                <td>{{ calcTotal(row).toFixed(2) }}</td>
+
+                <!-- Доп. расход -->
+                <td>{{ calcRowExpense(row).toFixed(2) }}</td>
+
+                <!-- Себестоимость -->
+                <td>{{ calcCostPrice(row).toFixed(2) }}</td>
+
+                <!-- Удалить -->
+                <td>
+                  <button class="remove-btn" @click="removeProductRow(idx)">❌</button>
+                </td>
+              </tr>
+
+              <!-- Итоги -->
+              <tr class="summary-row">
+                <td colspan="4" class="summary-label">ИТОГО</td>
+                <td>{{ totalNetto.toFixed(2) }}</td>
+                <td></td>
+                <td>{{ totalSum.toFixed(2) }}</td>
+                <td>{{ totalExpenses.toFixed(2) }}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ▸ Доп. расходы -->
+      <div class="card mt-3">
+        <div class="card-header flex-between">
+          <h3>Дополнительные расходы</h3>
+          <button class="action-btn add-row-btn" @click="addExpenseRow">➕ Добавить расход</button>
         </div>
 
-        <!-- ────────── Кнопка «Сохранить» ────────── -->
-        <div class="mt-3">
-          <button @click="submitProductReceivingData"
-                  class="action-btn save-btn"
-                  :disabled="isSubmitting">
-            {{ isSubmitting ? "⏳ Сохранение..." : "Сохранить" }}
-          </button>
+        <div class="card-body">
+          <table class="styled-table">
+            <thead>
+              <tr><th>Наименование</th><th>Поставщик</th><th>Сумма</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(ex,i) in expenses" :key="ex._key">
+                <td>
+                  <select v-model="ex.expense_id" class="table-select" @change="onExpenseSelect(ex)">
+                    <option disabled value="">---</option>
+                    <option v-for="e in allExpenses" :key="e.id" :value="e.id">{{ e.name }}</option>
+                  </select>
+                </td>
+                <td>
+                  <select v-model="ex.provider_id" class="table-select">
+                    <option disabled value="">— Поставщик —</option>
+                    <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                </td>
+                <td><input v-model.number="ex.amount" type="number" class="table-input" /></td>
+                <td><button class="remove-btn" @click="removeExpense(i)">❌</button></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
+      </div>
 
-        <div v-if="message" :class="['feedback-message', messageType]">{{ message }}</div>
-      </main>
-    </div>
-  </template>
+      <!-- ▸ Save -->
+      <button class="action-btn save-btn" :disabled="isSubmitting" @click="submitData">
+        {{ isSubmitting ? '⏳ Сохранение…' : 'Сохранить' }}
+      </button>
+      <div v-if="message" :class="['feedback-message', messageType]">{{ message }}</div>
+    </main>
+  </div>
+</template>
 
-
-<script setup>
+<script>
 import { ref, computed, onMounted } from 'vue'
-import axios from 'axios'
+import axios from '@/plugins/axios'
 
-/* ─── состояние ───────────────────────────────────────────── */
-const selectedProviderId  = ref('')
-const selectedDate        = ref('')
-const selectedWarehouseId = ref('')
+export default {
+  setup () {
+    /* ─── reactive state ─── */
+    const selectedProviderId  = ref('')
+    const selectedDate        = ref('')
+    const selectedWarehouseId = ref('')
 
-const providers   = ref([])
-const products    = ref([])
-const units       = ref([])    // { id, name, tare (в граммах) }
-const allExpenses = ref([])
-const warehouses  = ref([])
+    const providers   = ref([])
+    const products    = ref([])
+    const units       = ref([])   // { id, name, tare }
+    const allExpenses = ref([])
+    const warehouses  = ref([])
 
-/* строки товаров */
-const productRows = ref([newProductRow()])
-function newProductRow () {
-  return {
-    _key : Date.now() + Math.random(),
-    product_subcard_id : null,
-    unit_measurement   : null,
-    quantity           : 0,      // qtyTare
-    brutto             : 0,
-    price              : 0
-  }
-}
-/* строки доп-расходов */
-const expenses = ref([])        // { _key, expense_id, provider_id, name, amount }
+    /* helpers */
+    const isKg = n => /кг|килограмм/i.test(n || '')
 
-/* ─── fetch из API (как было) ─────────────────────────────── */
-const flatten = res => (res.refferences ?? []).flatMap(r => r.RefferenceItem ?? [])
+    /* rows */
+    const newProdRow = () => ({
+      _key: Date.now() + Math.random(),
+      product_subcard_id: '',
+      unit_measurement  : '',
+      quantity          : 0,
+      brutto            : 0,
+      price             : 0
+    })
+    const productRows = ref([newProdRow()])
+    const expenses = ref([])
 
-async function fetchProviders ()  { providers.value   = (await axios.get('/api/reference/provider')).data }
-async function fetchProducts  ()  { products.value    = (await axios.get('/api/reference/subproductCard')).data }
-async function fetchUnits     ()  {
-  const { data } = await axios.get('/api/reference/unit')
-  units.value = data.map(u => ({ id:u.id, name:u.name, tare:Number(u.value)||0 }))
-}
-async function fetchAllExpenses (){ allExpenses.value = (await axios.get('/api/reference/expense')).data }
-async function fetchWarehouses () { warehouses.value  = (await axios.get('/api/getWarehouses')).data }
+    /* ─── fetch reference lists ─── */
+    const plain = d => Array.isArray(d) ? d : (d.data ?? [])
 
-onMounted(() => Promise.all([
-  fetchProviders(), fetchProducts(), fetchUnits(),
-  fetchAllExpenses(), fetchWarehouses()
-]))
+    const fetchAll = async () => {
+      providers.value   = plain((await axios.get('/api/references/provider')).data)
+      products.value    = plain((await axios.get('/api/references/subproductCard')).data)
 
-/* ─── helpers: добавить / удалить строки ──────────────────── */
-function addProductRow  () { productRows.value.push(newProductRow()) }
-function removeProductRow (idx){ productRows.value.splice(idx,1) }
+      const u = plain((await axios.get('/api/references/unit')).data)
+      units.value = u.map(x => ({ id: x.id, name: x.name, tare: +x.tare || 0 }))
 
-function addExpenseRow () {
-  expenses.value.push({ _key:Date.now()+Math.random(), expense_id:'', provider_id:'', name:'', amount:0 })
-}
-function removeExpense (idx){ expenses.value.splice(idx,1) }
-function onExpenseSelect (row){
-  const found = allExpenses.value.find(e=>e.id===row.expense_id)
-  row.name   = found?.name   ?? ''
-  row.amount = found?.amount ?? 0
-}
-
-/* ─── общие утилиты ───────────────────────────────────────── */
-const isKg = n => /кг|килограмм/i.test(n ?? '')
-
-/* цена доп-расходов на 1 единицу (тара + кг) */
-function getExpPerUnit () {
-  const tareCnt = productRows.value.reduce((s,r)=>s + (+r.quantity||0), 0)
-  const kiloCnt = productRows.value.reduce(
-    (s,r)=> isKg(r.unit_measurement) ? s + (+r.brutto||0) : s, 0
-  )
-  const allCnt  = tareCnt + kiloCnt
-  const expSum  = expenses.value.reduce((s,e)=>s + (+e.amount||0), 0)
-  return allCnt ? expSum / allCnt : 0
-}
-
-/* ─── формулы в стиле React-Native ────────────────────────── */
-function calcNetto (r){
-  const u = units.value.find(x=>x.name===r.unit_measurement) || { tare:0 }
-  if (isKg(u.name)) return +r.brutto || 0
-  const tareKg = u.tare / 1000
-  return Math.max((+r.brutto||0) - (+r.quantity||0) * tareKg, 0)
-}
-
-function calcTotal (r){
-  const net = calcNetto(r)
-  if (isKg(r.unit_measurement)) return (+r.price||0) * net
-
-  if ((+r.brutto||0) === 0 && net === 0)
-    return (+r.price||0) * (+r.quantity||0)
-
-  return (+r.price||0) * net
-}
-
-function calcRowExpense (r){
-  const per = getExpPerUnit()
-  const base = isKg(r.unit_measurement)
-    ? (+r.brutto || 0)
-    : (+r.quantity || 0)
-  return +(base * per).toFixed(2)
-}
-
-function calcCostPrice (r){
-  const base = isKg(r.unit_measurement)
-    ? (+r.brutto || 0)
-    : (+r.quantity || 0)
-  if (!base) return 0
-  return +((calcTotal(r) + calcRowExpense(r)) / base).toFixed(2)
-}
-const formatPrice = v => (v??0).toFixed(2)
-
-/* ─── итоги ───────────────────────────────────────────────── */
-const totalNetto    = computed(()=> productRows.value.reduce((s,r)=>s+calcNetto(r) ,0))
-const totalSum      = computed(()=> productRows.value.reduce((s,r)=>s+calcTotal(r) ,0))
-const totalExpenses = computed(()=> expenses.value   .reduce((s,e)=>s+(+e.amount||0),0))
-
-/* ─── submit (как было) ───────────────────────────────────── */
-const message      = ref('')
-const messageType  = ref('')
-const isSubmitting = ref(false)
-
-async function submitProductReceivingData(){
-  isSubmitting.value = true
-  try {
-    const payload = {
-      provider_id          : selectedProviderId.value,
-      document_date        : selectedDate.value,
-      assigned_warehouse_id: selectedWarehouseId.value,
-      products: productRows.value.map(r=>({
-        product_subcard_id : r.product_subcard_id,
-        unit_measurement   : r.unit_measurement,
-        quantity           : r.quantity,
-        brutto             : r.brutto,
-        netto              : calcNetto(r),
-        price              : r.price,
-        total_sum          : calcTotal(r),
-        additional_expenses: calcRowExpense(r),
-        cost_price         : calcCostPrice(r)
-      })),
-      expenses: expenses.value.map(e=>({
-        expense_id : e.expense_id,
-        provider_id: e.provider_id,
-        amount     : e.amount
-      }))
+      allExpenses.value = plain((await axios.get('/api/references/expense')).data)
+      warehouses.value  = plain((await axios.get('/api/getWarehouses')).data)
     }
-    await axios.post('/api/receivingBulkStore', payload)
-    message.value     = 'Данные успешно сохранены!'
-    messageType.value = 'success'
-    /* reset */
-    productRows.value = [newProductRow()]
-    expenses.value    = []
-    selectedProviderId.value  = ''
-    selectedDate.value        = ''
-    selectedWarehouseId.value = ''
+    onMounted(fetchAll)
+
+    /* === calculations ======================================== */
+    const unitByName = n => units.value.find(x => x.name === n) || { tare: 0 }
+
+    const calcNetto = r => {
+      if (isKg(r.unit_measurement)) return +r.brutto || 0
+      const u = unitByName(r.unit_measurement)
+      return Math.max((+r.brutto || 0) - (+r.quantity || 0) * (u.tare / 1000), 0)
+    }
+
+    const calcTotal = r => {
+      const n = calcNetto(r)
+      if (isKg(r.unit_measurement)) return (+r.price || 0) * n
+      if ((+r.brutto || 0) === 0 && n === 0) return (+r.price || 0) * (+r.quantity || 0)
+      return (+r.price || 0) * n
+    }
+
+    /* disable brutto if tare==0 & not Kg */
+    const disableBrutto = r => {
+      const u = unitByName(r.unit_measurement)
+      return u.tare === 0 && !isKg(u.name)
+    }
+
+    /* extra expenses per unit */
+    const expPerUnit = computed(() => {
+      const tare = productRows.value.reduce((s, r) => s + (+r.quantity || 0), 0)
+      const kilo = productRows.value.reduce((s, r) =>
+        isKg(r.unit_measurement) ? s + (+r.brutto || 0) : s, 0)
+      const sum  = expenses.value.reduce((s, e) => s + (+e.amount || 0), 0)
+      const all  = tare + kilo
+      return all ? sum / all : 0
+    })
+
+    const calcRowExpense = r => {
+      const base = isKg(r.unit_measurement) ? (+r.brutto || 0) : (+r.quantity || 0)
+      return +(base * expPerUnit.value).toFixed(2)
+    }
+
+    const calcCostPrice = r => {
+      const base = isKg(r.unit_measurement) ? (+r.brutto || 0) : (+r.quantity || 0)
+      return base ? +((calcTotal(r) + calcRowExpense(r)) / base).toFixed(2) : 0
+    }
+
+    /* totals */
+    const totalNetto    = computed(() => productRows.value.reduce((s, r) => s + calcNetto(r), 0))
+    const totalSum      = computed(() => productRows.value.reduce((s, r) => s + calcTotal(r), 0))
+    const totalExpenses = computed(() => expenses.value.reduce((s, e) => s + (+e.amount || 0), 0))
+
+    /* === rows handlers ======================================= */
+    const addProductRow    = () => productRows.value.push(newProdRow())
+    const removeProductRow = idx => productRows.value.splice(idx, 1)
+
+    const addExpenseRow    = () =>
+      expenses.value.push({ _key: Date.now() + Math.random(), expense_id: '', provider_id: '', name: '', amount: 0 })
+    const removeExpense    = idx => expenses.value.splice(idx, 1)
+
+    const onExpenseSelect = row => {
+      const f = allExpenses.value.find(x => x.id === row.expense_id)
+      row.name = f ? f.name : ''
+    }
+
+    /* === submit ============================================== */
+    const isSubmitting = ref(false)
+    const message      = ref('')
+    const messageType  = ref('')
+
+    const submitData = async () => {
+      isSubmitting.value = true
+      try {
+        await axios.post('/api/receivingBulkStore', {
+          provider_id          : selectedProviderId.value,
+          document_date        : selectedDate.value,
+          assigned_warehouse_id: selectedWarehouseId.value,
+
+          products: productRows.value.map(r => ({
+            product_subcard_id : r.product_subcard_id,
+            unit_measurement   : r.unit_measurement,
+            quantity           : r.quantity,
+            brutto             : r.brutto,
+            netto              : calcNetto(r),
+            price              : r.price,
+            total_sum          : calcTotal(r),
+            additional_expenses: calcRowExpense(r),
+            cost_price         : calcCostPrice(r)
+          })),
+
+          expenses: expenses.value.map(e => ({
+            expense_id : e.expense_id,
+            provider_id: e.provider_id,
+            amount     : e.amount
+          }))
+        })
+
+        message.value     = 'Данные успешно сохранены!'
+        messageType.value = 'success'
+        /* reset формы */
+        productRows.value = [newProdRow()]
+        expenses.value    = []
+      }
+      catch (err) {
+        console.error(err)
+        message.value     = 'Ошибка при сохранении'
+        messageType.value = 'error'
+      }
+      finally { isSubmitting.value = false }
+    }
+
+    /* expose */
+    return {
+      selectedProviderId, selectedDate, selectedWarehouseId,
+      providers, products, units, allExpenses, warehouses,
+
+      productRows, expenses,
+      addProductRow, removeProductRow,
+      addExpenseRow, removeExpense, onExpenseSelect,
+
+      isKg, disableBrutto,
+      calcNetto, calcTotal, calcRowExpense, calcCostPrice,
+
+      totalNetto, totalSum, totalExpenses,
+
+      isSubmitting, submitData,
+      message, messageType
+    }
   }
-  catch(err){
-    console.error(err)
-    message.value     = 'Ошибка при сохранении данных.'
-    messageType.value = 'error'
-  }
-  finally{ isSubmitting.value = false }
 }
 </script>
 
+<!-- Стили те же, что присылались ранее (ниже оставлены) -->
 <style scoped>
 /* Full Page Container */
-.full-page {
-  width: 100vw;
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
-
+.full-page{width:100vw;min-height:100vh;background:#f5f5f5}
 /* Content */
-.content {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.page-title {
-  color: #0288d1;
-  text-align: center;
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-}
+.content{max-width:1100px;margin:0 auto;padding:20px;width:100%}
+.page-title{text-align:center;color:#0288d1;margin-bottom:20px;font-size:1.5rem}
 
 /* Cards */
-.card {
-  background-color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  margin-bottom: 20px;
-  overflow: hidden;
-}
+.card{background:#fff;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);margin-bottom:20px;overflow:hidden}
+.card-header{background:#f1f1f1;padding:12px 16px;border-bottom:1px solid #ddd}
+.card-header h3{margin:0;color:#333}
+.card-body{padding:16px}
+.mt-3{margin-top:20px}
+.flex-between{display:flex;justify-content:space-between;align-items:center}
+.flex-row{display:flex;flex-wrap:wrap;gap:20px}
 
-.card-header {
-  background-color: #f1f1f1;
-  padding: 12px 16px;
-  border-bottom: 1px solid #ddd;
-}
+/* Inputs */
+.field-label{font-weight:bold;color:#555;margin-bottom:6px;display:inline-block}
+.dropdown-select,.table-select{width:100%;padding:12px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.table-input{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.table-input.disabled{background:#f5f5f5;color:#888;cursor:not-allowed}
 
-.card-header h3 {
-  margin: 0;
-  color: #333;
-}
-
-.card-body {
-  padding: 16px;
-}
-
-.mt-3 {
-  margin-top: 20px;
-}
-
-.flex-between {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.flex-row {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-/* Field Labels */
-.field-label {
-  font-weight: bold;
-  color: #555;
-  margin-bottom: 6px;
-  display: inline-block;
-}
-
-/* Form Elements */
-.dropdown-select {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.table-select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.table-input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-/* Styled Table */
-.styled-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.styled-table thead tr {
-  background-color: #0288d1;
-  color: #fff;
-}
-
-.styled-table th,
-.styled-table td {
-  padding: 10px;
-  border: 1px solid #ddd;
-  text-align: center;
-}
-
-.summary-row td {
-  background-color: #f8f8f8;
-  font-weight: bold;
-}
-
-.summary-label {
-  text-align: right;
-}
+/* Table */
+.styled-table{width:100%;border-collapse:collapse}
+.styled-table thead{background:#0288d1;color:#fff}
+.styled-table th,.styled-table td{padding:10px;border:1px solid #ddd;text-align:center;font-size:14px}
+.summary-row td{background:#f8f8f8;font-weight:bold}
+.summary-label{text-align:right}
 
 /* Buttons */
-.action-btn {
-  background-color: #0288d1;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-  font-size: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-btn:hover {
-  background-color: #026ca0;
-}
-
-.add-row-btn {
-  font-size: 15px;
-}
-
-.save-btn {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* Remove Button */
-.remove-btn {
-  background-color: #f44336;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.remove-btn:hover {
-  background-color: #d32f2f;
-}
+.action-btn{display:inline-flex;align-items:center;justify-content:center;
+            background:#0288d1;color:#fff;border:none;border-radius:8px;padding:10px 18px;
+            cursor:pointer;font-size:14px;transition:.3s}
+.action-btn:hover{background:#026ca0}
+.save-btn{width:100%;margin-top:8px}
+.add-row-btn{font-size:15px}
+.remove-btn{background:#f44336;color:#fff;border:none;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px}
+.remove-btn:hover{background:#d32f2f}
 
 /* Messages */
-.feedback-message {
-  margin-top: 20px;
-  text-align: center;
-  font-weight: bold;
-  padding: 10px;
-  border-radius: 8px;
-}
-
-.success {
-  background-color: #d4edda;
-  color: #155724;
-}
-
-.error {
-  background-color: #f8d7da;
-  color: #721c24;
-}
+.feedback-message{margin-top:20px;text-align:center;font-weight:bold;padding:10px;border-radius:8px}
+.feedback-message.success{background:#d4edda;color:#155724}
+.feedback-message.error  {background:#f8d7da;color:#721c24}
 </style>

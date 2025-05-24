@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Unit_measurement;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class UnitMeasurementController extends Controller
@@ -11,9 +12,9 @@ class UnitMeasurementController extends Controller
     /**
      * Retrieve all unit measurements (HEAD version).
      */
-    public function index(Request $request)
+    public function index()
     {
-        $orgId = $request->user()->organization_id;   // «моя» организация
+        $orgId = Auth::user()->organization_id;   // «моя» организация
 
         /*  ─── выборка ───
             WHERE (organization_id = $orgId)  OR (organization_id IS NULL)
@@ -39,7 +40,7 @@ class UnitMeasurementController extends Controller
 
         // Validate that either name or tare is provided
         $request->validate([
-            'name' => 'nullable|string|max:255|unique:unit_measurements,name',
+            'name' => 'nullable|string|max:255',
             'tare' => 'nullable|numeric',
         ], [
             'name.unique' => 'Единица измерения с таким наименованием уже существует.',
@@ -52,6 +53,7 @@ class UnitMeasurementController extends Controller
 
         // Create the unit measurement
         $unit = Unit_measurement::create([
+            'organization_id'=> $request->user()->organization_id,
             'name' => $request->input('name'),
             'tare' => $request->input('tare') !== null
                 ? (float) $request->input('tare')

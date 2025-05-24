@@ -154,101 +154,104 @@ public function updateFinancialOrder(Request $request, int $id)
 
     // создать приходной ордер
     public function financialOrder(Request $request)
-    {
-        $orders = FinancialOrder::with([
-                'adminCash',          // название кассы
-                'user',
-                'financialElement',   // статья
-                'productSubcard'
+{
+    $orgId = $request->user()->organization_id;   // «my» organisation
+
+    $orders = FinancialOrder::query()
+        ->where('organization_id', $orgId)        // ← NEW LINE
+        ->with([
+            'adminCash',         // касса
+            'user',
+            'financialElement',  // статья
+            'productSubcard',
+        ])
+
+        /* ───── фильтр по диапазону дат ───── */
+        ->when(
+            $request->filled('date_from') && $request->filled('date_to'),
+            fn ($q) => $q->whereBetween('date_of_check', [
+                $request->date_from,
+                $request->date_to,
             ])
+        )
 
-            /* ---------- диапазон дат ---------- */
-            ->when(
-                $request->filled('date_from') && $request->filled('date_to'),
-                fn ($q) => $q->whereBetween('date_of_check', [
-                    $request->date_from,
-                    $request->date_to
-                ])
-            )
+        /* ───── фильтр по кассе ───── */
+        ->when(
+            $request->filled('cashbox'),
+            fn ($q) => $q->whereHas('adminCash', function ($sub) use ($request) {
+                $sub->where('name', 'like', '%' . $request->cashbox . '%');
+            })
+        )
 
-            /* ---------- фильтр по кассе ---------- */
-            ->when(
-                $request->filled('cashbox'),
-                fn ($q) => $q->whereHas('adminCash', function ($sub) use ($request) {
-                    $sub->where('name', 'like', '%' . $request->cashbox . '%');
-                })
-            )
+        /* ───── фильтр по статье ───── */
+        ->when(
+            $request->filled('element'),
+            fn ($q) => $q->whereHas('financialElement', function ($sub) use ($request) {
+                $sub->where('name', 'like', '%' . $request->element . '%');
+            })
+        )
 
-            /* ---------- фильтр по статье (НОВОЕ) ---------- */
-            ->when(
-                $request->filled('element'),
-                fn ($q) => $q->whereHas('financialElement', function ($sub) use ($request) {
-                    $sub->where('name', 'like', '%' . $request->element . '%');
-                })
-            )
+        ->orderByDesc('date_of_check')
+        ->get();
 
-            ->orderByDesc('date_of_check')
-            ->get();
+    return response()->json($orders, 200);
+}
 
-        return response()->json($orders, 200);
-    }
 
 
     /** GET /financial-orders/{type} — income  или  expense */
     public function financialOrderByType(Request $request, string $type)
-    {
-        /* ------------ выборка с жадной загрузкой связей ------------- */
-        $orders = FinancialOrder::query()
-            ->where('type', $type)
+{
+    $orgId = $request->user()->organization_id;       // current tenant
 
-            // eager‑load: нужные поля, чтобы не тащить всё подряд
-            ->with([
-                'adminCash:id,name,IBAN',
-                'financialElement:id,name,type',
-                'user:id,first_name,last_name,surname,whatsapp_number',
-                'provider:id,name',
-                'productSubcard:id,name',
+    $orders = FinancialOrder::forOrg($orgId)          // 👈 scoped by organisation
+        ->where('type', $type)
+        ->with([
+            'adminCash:id,name,IBAN',
+            'financialElement:id,name,type',
+            'user:id,first_name,last_name,surname,whatsapp_number',
+            'provider:id,name',
+            'productSubcard:id,name',
+        ])
+
+        /* ───── date range ───── */
+        ->when(
+            $request->filled(['date_from', 'date_to']),
+            fn ($q) => $q->whereBetween('date_of_check', [
+                $request->date_from,
+                $request->date_to,
             ])
+        )
 
-            /* ----------- фильтр: диапазон дат ------------------------ */
-            ->when(
-                $request->filled(['date_from', 'date_to']),
-                fn ($q) => $q->whereBetween('date_of_check', [
-                    $request->date_from,
-                    $request->date_to,
-                ])
-            )
+        /* ───── cashbox name ──── */
+        ->when(
+            $request->filled('cashbox'),
+            fn ($q) => $q->whereHas('adminCash', function ($sub) use ($request) {
+                $sub->where('name', 'like', '%' . $request->cashbox . '%');
+            })
+        )
 
-            /* ----------- фильтр: название кассы ---------------------- */
-            ->when(
-                $request->filled('cashbox'),
-                fn ($q) => $q->whereHas('adminCash', function ($sub) use ($request) {
-                    $sub->where('name', 'like', '%' . $request->cashbox . '%');
-                })
-            )
+        /* ───── element name ──── */
+        ->when(
+            $request->filled('element'),
+            fn ($q) => $q->whereHas('financialElement', function ($sub) use ($request) {
+                $sub->where('name', 'like', '%' . $request->element . '%');
+            })
+        )
 
-            /* ----------- фильтр: статья движения --------------------- */
-            ->when(
-                $request->filled('element'),
-                fn ($q) => $q->whereHas('financialElement', function ($sub) use ($request) {
-                    $sub->where('name', 'like', '%' . $request->element . '%');
-                })
-            )
+        ->orderByDesc('date_of_check')
+        ->get()
+        ->makeHidden([
+            'user_id',
+            'provider_id',
+            'admin_cash_id',
+            'financial_element_id',
+            'product_subcard_id',
+        ]);
 
-            ->orderByDesc('date_of_check')
-            ->get()
+    return response()->json($orders, 200);
+}
 
-            // убираем лишние FK‑поля из ответа
-            ->makeHidden([
-                'user_id',
-                'provider_id',
-                'admin_cash_id',
-                'financial_element_id',
-                'product_subcard_id',
-            ]);
-
-        return response()->json($orders, 200);
-    }
 
     /**
      * для клиента создаем
@@ -321,59 +324,61 @@ public function updateFinancialOrder(Request $request, int $id)
     // }
 
     // для кассы
-    public function storeFinancialOrders(Request $request)
-    {
-        Log::info($request->all());
-        $validator = Validator::make($request->all(), [
-            'type'               => 'required|string|in:expense,income', // etc.
-            'admin_cash_id'      => 'required|exists:admin_cashes,id',
-            'financial_element_id'=> 'required|exists:financial_elements,id',
-            'summary_cash'       => 'required|integer',
-            'date_of_check'      => 'required|date',
+  public function storeFinancialOrders(Request $request)
+{
+    Log::info($request->all());
+    // 1. Validate ------------------------------------------------------
+    $validator = Validator::make($request->all(), [
+        'type'                 => 'required|string|in:expense,income',
+        'admin_cash_id'        => 'required|exists:admin_cashes,id',
+        'financial_element_id' => 'required|exists:financial_elements,id',
+        'summary_cash'         => 'required|integer|min:1',
+        'date_of_check'        => 'required|date',
+        'counterparty_id'      => 'required|uuid',
+        'counterparty_type'    => 'required|string',      // we keep it, but only log it
+        'photo_of_check'       => 'nullable|image|max:4096',
+    ]);
 
-            // 2) The combined field:
-            'counterparty_id'    => 'required|uuid',
-            'counterparty_type'  => 'required|string|in:client,provider',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        // 3) Decide whether to store in user_id or provider_id
-        $userId = null;
-        $providerId = null;
-
-        if ($request->counterparty_type === 'provider') {
-            // if the providers table has an ID to match
-            // e.g. check providers table if needed
-            $providerId = $request->counterparty_id;
-        } else {
-            // assume 'client'
-            $userId = $request->counterparty_id;
-        }
-
-        // 4) Create the financial order
-        $financialOrder = new FinancialOrder();
-        $financialOrder->type = $request->type;
-        $financialOrder->admin_cash_id = $request->admin_cash_id;
-        $financialOrder->financial_element_id = $request->financial_element_id;
-        $financialOrder->summary_cash = $request->summary_cash;
-        $financialOrder->date_of_check = $request->date_of_check;
-        $financialOrder->auth_user_id = $request->user()->id;
-        // store user_id or provider_id
-        $financialOrder->user_id = $userId;
-        $financialOrder->provider_id = $providerId;
-        $financialOrder->organization_id = $request->user()->organization_id;
-        // handle optional fields (photo, product_subcard_id, etc.)
-        // $financialOrder->photo_of_check = ...
-        // $financialOrder->product_subcard_id = $request->product_subcard_id;
-        // ...
-
-        $financialOrder->save();
-
-        return response()->json($financialOrder, 201);
+    if ($validator->fails()) {
+        // Laravel will serialise the array to JSON automatically.
+        return response()->json(['errors' => $validator->errors()], 422);
     }
+
+    $data = $validator->validated();
+
+    // 2. Create order --------------------------------------------------
+    $order = new FinancialOrder();
+
+    // if your model already generates UUID in the "creating" hook —
+    // remove the next line
+    $order->id = (string) \Illuminate\Support\Str::uuid();
+
+    $order->type                 = $data['type'];
+    $order->admin_cash_id        = $data['admin_cash_id'];
+    $order->financial_element_id = $data['financial_element_id'];
+    $order->summary_cash         = $data['summary_cash'];
+    $order->date_of_check        = $data['date_of_check'];
+
+    /*  ⬇️  always save the chosen counterparty to provider_id  */
+    $order->provider_id     = $data['counterparty_id'];   // <— the only ID we set
+    $order->user_id         = null;                      // keep null on purpose
+    /*  ------------------------------------------------------  */
+
+    $order->auth_user_id    = $request->user()->id;
+    $order->organization_id = $request->user()->organization_id;
+
+    // optional photo
+    if ($request->hasFile('photo_of_check')) {
+        $path = $request->file('photo_of_check')
+                        ->store('checks', 'public'); // storage/app/public/checks
+        $order->photo_of_check = $path;
+    }
+
+    $order->save();
+
+    // 3. Return plain JSON response -----------------------------------
+    return response()->json($order, 201);   // Laravel helper works in 7.4
+}
 
 
 

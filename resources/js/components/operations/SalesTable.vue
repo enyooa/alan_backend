@@ -1,6 +1,6 @@
 <template>
   <div class="expense-page">
-    <!-- ▸ TOP-BAR ------------------------------------------------------- -->
+    <!-- ▸ TOP-BAR ------------------------------------------------ -->
     <header class="topbar">
       <h1>Продажи</h1>
 
@@ -15,15 +15,12 @@
       </div>
     </header>
 
-    <!-- ▸ TABLE -------------------------------------------------------- -->
+    <!-- ▸ TABLE -------------------------------------------------- -->
     <table class="orders">
       <thead>
         <tr>
-          <th>№</th>
-          <th>Дата</th>
-          <th>Склад списания</th>
-          <th>Покупатель</th>
-          <th class="num">Сумма, ₸</th>
+          <th>№</th><th>Дата</th><th>Склад списания</th>
+          <th>Покупатель</th><th class="num">Сумма, ₸</th>
           <th class="num">Действия</th>
         </tr>
       </thead>
@@ -38,7 +35,7 @@
           <td>{{ d.document_number || idx + 1 }}</td>
           <td>{{ fmtDate(d.document_date) }}</td>
           <td>{{ (d.from_warehouse && d.from_warehouse.name) || '—' }}</td>
-          <td class="title">{{ (d.provider && d.provider.name) || '—' }}</td>
+          <td class="title">{{ d.buyerName }}</td>
           <td class="num">{{ money(sumDoc(d)) }}</td>
           <td class="num actions" @click.stop>
             <button class="icon-btn" @click="openEdit(d)">✏️</button>
@@ -52,12 +49,12 @@
       </tbody>
     </table>
 
-    <!-- ▸ CREATE BTN --------------------------------------------------- -->
+    <!-- ▸ CREATE BTN -------------------------------------------- -->
     <button class="create-btn" @click="showCreate = true">
       ➕ Создать продажу
     </button>
 
-    <!-- ▸ CREATE MODAL ------------------------------------------------- -->
+    <!-- ▸ CREATE MODAL ------------------------------------------ -->
     <div v-if="showCreate" class="modal-overlay">
       <div class="modal-container">
         <button class="close-btn" @click="showCreate = false">×</button>
@@ -65,7 +62,7 @@
       </div>
     </div>
 
-    <!-- ▸ EDIT MODAL --------------------------------------------------- -->
+    <!-- ▸ EDIT MODAL -------------------------------------------- -->
     <ModalShell v-if="showEdit" @close="closeEdit">
       <EditSaleModal
         :document-id="editDoc && editDoc.id"
@@ -77,20 +74,19 @@
 </template>
 
 <script>
-import axios from '@/plugins/axios'
-
-/* create / edit */
-import SalePage from './Sales.vue'
+import axios         from '@/plugins/axios'
+import SalePage      from './Sales.vue'
 import EditSaleModal from '../../views/forms/products/EditSaleModal.vue'
-import ModalShell from '../../views/forms/products/ModalShell.vue'
+import ModalShell    from '../../views/forms/products/ModalShell.vue'
+
 export default {
-  name: 'SalesProductsPage',
+  name      : 'SalesTable',
   components: { SalePage, EditSaleModal, ModalShell },
 
   data () {
     return {
-      raw       : [],   /* полный список */
-      view      : [],   /* фильтрованный */
+      raw       : [],
+      view      : [],
       search    : '',
       showCreate: false,
       showEdit  : false,
@@ -101,16 +97,22 @@ export default {
   created () { this.load() },
 
   methods: {
-    /* ─── API ─────────────────────────────────────────────── */
+    /* ─── API ─────────────────────────────────────── */
     async load () {
       try {
         const { data } = await axios.get('/api/sales-products')
-        this.raw = Array.isArray(data) ? data : []
+        /* нормализуем имя покупателя */
+        this.raw = (Array.isArray(data) ? data : []).map(d => ({
+          ...d,
+          buyerName: d.client_info
+            ? `${d.client_info.first_name} ${d.client_info.last_name || ''}`.trim()
+            : (d.organization_info && d.organization_info.name) || '—'
+        }))
         this.applyFilter()
       } catch (e) { console.error(e); alert('Не удалось загрузить продажи') }
     },
 
-    /* ─── фильтр / поиск ──────────────────────────────────── */
+    /* ─── фильтр ─────────────────────────────────── */
     applyFilter () {
       const q = this.search.toLowerCase()
       this.view = !q
@@ -119,7 +121,7 @@ export default {
             [
               d.document_number,
               d.from_warehouse && d.from_warehouse.name,
-              d.provider && d.provider.name,
+              d.buyerName,
               this.fmtDate(d.document_date)
             ]
             .join(' ')
@@ -128,21 +130,17 @@ export default {
           )
     },
 
-    /* ─── helpers ─────────────────────────────────────────── */
+    /* ─── helpers ───────────────────────────────── */
     money (v)   { return Number(v || 0).toLocaleString('ru-RU') },
     fmtDate (d) { return d ? new Date(d).toLocaleDateString() : '' },
-    sumDoc (d)  {
-      return d.items
-        ? d.items.reduce((s,i)=>s + (+i.total_sum || 0), 0)
-        : 0
-    },
+    sumDoc (d)  { return (d.items || []).reduce((s,i)=>s + (+i.total_sum || 0), 0) },
 
-    /* ─── create / edit ───────────────────────────────────── */
+    /* ─── create / edit ─────────────────────────── */
     onSaved ()  { this.showCreate = false; this.closeEdit(); this.load() },
     openEdit (d){ this.editDoc = d; this.showEdit = true },
     closeEdit (){ this.showEdit  = false; this.editDoc = null },
 
-    /* ─── delete ─────────────────────────────────────────── */
+    /* ─── delete ───────────────────────────────── */
     async remove (d, idx) {
       if (!confirm('Удалить документ?')) return
       try {
@@ -155,9 +153,8 @@ export default {
 </script>
 
 <style scoped>
-/* базовый интерфейс (цвета и стили FinancialExpenseOrders) */
+/* (стили те же, что были) */
 .expense-page{font-family:Inter,sans-serif;padding:18px}
-
 /* topbar */
 .topbar{display:flex;align-items:center;gap:14px;
        background:linear-gradient(90deg,#03b4d1,#3dc1ff);
@@ -167,7 +164,6 @@ export default {
 .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
 .search{height:34px;font-size:14px;padding:0 10px;border-radius:8px;border:none;min-width:180px}
 .reload{border:none;background:none;color:#c8ff55;font-size:24px;cursor:pointer;line-height:1}
-
 /* table */
 table.orders{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;
              overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)}
@@ -180,20 +176,16 @@ table.orders{width:100%;border-collapse:collapse;background:#fff;border-radius:1
 .click-row{cursor:pointer;transition:background .15s}
 .click-row:hover{background:#f7fdff}
 .actions{display:flex;gap:6px;justify-content:center}
-
 /* buttons */
 .icon-btn{background:#03b4d1;color:#fff;border:none;border-radius:6px;
           padding:4px 8px;font-size:16px;cursor:pointer;transition:filter .15s}
-.icon-btn.danger{background:#f44336}
-.icon-btn:hover{filter:brightness(.9)}
-
-/* floating create btn */
+.icon-btn.danger{background:#f44336}.icon-btn:hover{filter:brightness(.9)}
+/* floating btn */
 .create-btn{position:fixed;right:22px;bottom:22px;display:flex;align-items:center;gap:6px;
             padding:0 20px;height:48px;background:linear-gradient(90deg,#18bdd7,#5fd0e5);
             border:none;border-radius:30px;box-shadow:0 4px 14px rgba(0,0,0,.28);
             color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:.25s;z-index:900}
 .create-btn:hover{filter:brightness(1.08);transform:translateY(-2px)}
-
 /* modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);
                display:flex;align-items:center;justify-content:center;
@@ -201,10 +193,9 @@ table.orders{width:100%;border-collapse:collapse;background:#fff;border-radius:1
 .modal-container{background:#fff;border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.25);
                  width:100%;max-width:1100px;max-height:100vh;overflow:auto;
                  padding:28px 24px 24px;position:relative}
-.close-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;
-           border-radius:50%;border:none;background:#f44336;color:#fff;
-           font-size:22px;line-height:36px;cursor:pointer;
-           display:flex;align-items:center;justify-content:center;
+.close-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;
+           border:none;background:#f44336;color:#fff;font-size:22px;line-height:36px;
+           cursor:pointer;display:flex;align-items:center;justify-content:center;
            box-shadow:0 2px 6px rgba(0,0,0,.3)}
 .close-btn:hover{filter:brightness(1.1)}
 </style>

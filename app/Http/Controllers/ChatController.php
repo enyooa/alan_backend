@@ -37,9 +37,13 @@ class ChatController extends Controller
      */
     public function getMessages()
     {
-        return Message::with('user.roles:id,name')
-                      ->latest()
-                      ->get();
+        $orgId = auth()->user()->organization_id;       // adjust as needed
+
+    return Message::query()
+        ->where('organization_id', $orgId)          // 👈 limits to *your* organisation
+        ->with('user.roles:id,name')                // eager-load only what the chat needs
+        ->latest()
+        ->get();
     }
 
     /**

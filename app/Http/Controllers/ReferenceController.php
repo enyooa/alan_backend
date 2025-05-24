@@ -908,48 +908,57 @@ public function destroyOne(Request $request, string $type, string $id): JsonResp
 
     // app/Http/Controllers/ReferenceController.php
 
-    public function counterparties(Request $request)
+   public function counterparties(Request $request): JsonResponse
     {
-        $onlyOwn = $request->query('scope') === 'own';       // ?scope=own
-        $orgId   = $request->user()->organization_id;
+        $onlyOwn = $request->query('scope') === 'own';          // ?scope=own
+        $orgId   = optional($request->user())->organization_id; // может быть null (guest)
 
-        /* helper: добавляет where organization_id = $orgId когда нужно */
-        $scoped = function (string $table) use ($onlyOwn, $orgId) {
+        /* --------------------------------------------------------------
+         * helper-замыкание: если             scope=own   И   в таблице
+         * есть колонка organization_id  → добавляем where().
+         * ------------------------------------------------------------ */
+        $scoped = static function (string $table) use ($onlyOwn, $orgId) {
             $q = DB::table($table);
-            return $onlyOwn ? $q->where("$table.organization_id", $orgId) : $q;
+
+            if ($onlyOwn && $orgId && Schema::hasColumn($table, 'organization_id')) {
+                $q->where("$table.organization_id", $orgId);
+            }
+
+            return $q;
         };
 
-        /* ---------- клиенты ------------------------------------------------ */
+        /* ─────────── 1. Клиенты (роль client) ─────────── */
         $clients = User::selectRaw("
                         users.id,
                         CONCAT(users.first_name,' ',users.last_name) AS name,
                         'client' AS type
                     ")
-                    ->join('role_user',  'role_user.user_id', '=', 'users.id')
-                    ->join('roles',      'roles.id',          '=', 'role_user.role_id')
+                    ->join('role_user', 'role_user.user_id', '=', 'users.id')
+                    ->join('roles',     'roles.id',          '=', 'role_user.role_id')
                     ->where('roles.name', 'client')
-                    ->when($onlyOwn, fn ($q) => $q->where('users.organization_id', $orgId));
+                    ->when($onlyOwn && $orgId,
+                           fn ($q) => $q->where('users.organization_id', $orgId));
 
-        /* ---------- поставщики --------------------------------------------- */
+        /* ─────────── 2. Поставщики ────────────────────── */
         $providers = $scoped('providers')
             ->selectRaw("providers.id, providers.name, 'provider' AS type");
 
-        /* ---------- организации -------------------------------------------- */
+        /* ─────────── 3. Организации ───────────────────── */
         $orgs = $scoped('organizations')
             ->selectRaw("organizations.id, organizations.name, 'organization' AS type");
 
-        /* ---------- один SQL-запрос с UNION ALL ---------------------------- */
+        /* ─── 4. Один SQL с UNION ALL и сортировкой по name ─── */
         $union = $clients
                     ->unionAll($providers)
                     ->unionAll($orgs);
 
-        return response()->json(
-            DB::query()->fromSub($union, 't')
-                       ->orderBy('name')
-                       ->get()
-        );
-    }
+        $result = DB::query()
+                    ->fromSub($union, 't')
+                    ->orderBy('name')
+                    ->get();
 
+        return response()->json($result);
+    }
     // new Expense version
 public function listExpenseNames(Request $request)
 {

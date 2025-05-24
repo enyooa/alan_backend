@@ -116,6 +116,7 @@ public function bulkPriceOffers(Request $request)
 
         // Create the "header" record in price_offer_orders
         $priceOfferOrder = PriceOfferOrder::create([
+            'organization_id' => Auth::user()->organization_id,
             'client_id'  => $validatedData['client_id'],
             'address_id' => $validatedData['address_id'],
             'start_date' => $validatedData['start_date'],

@@ -200,12 +200,11 @@ class AuthController extends Controller
 
     public function registerOrganization(Request $request): JsonResponse
 {
-    Log::info($request);
     /* ① валидация */
     $data = $request->validate([
         'org_name'      => 'required|string|max:255',
         'address'       => 'nullable|string|max:255',
-        'plan_slug'     => 'nullable|string|exists:plans,slug', // если null → starter
+        'plan_slug'     => 'nullable|string|exists:plans,slug',   // null → starter
         'manager'       => 'required|array',
         'manager.phone' => 'required|string',
         'manager.first_name' => 'required|string|max:255',
@@ -222,10 +221,9 @@ class AuthController extends Controller
             'name'    => $data['org_name'],
             'address' => $data['address'] ?? '',
             'manager_first_name' => $data['manager']['first_name'],
-            'manager_last_name' => $data['manager']['last_name'],
-            'manager_phone'=>$data['manager']['phone'],
-            'manager_role'=>'admin',
-
+            'manager_last_name'  => $data['manager']['last_name'] ?? '',
+            'manager_phone'      => $data['manager']['phone'],
+            'manager_role'       => 'admin',
         ]);
 
         /* ── 2.2 План ── */
@@ -236,9 +234,6 @@ class AuthController extends Controller
             'starts_at' => now(),
             'ends_at'   => now()->addDays($plan->period_days),
         ]);
-
-        // даём разрешения плана
-        $org->permissions()->sync($plan->permissions->pluck('id'));
 
         /* ── 2.3 Админ ── */
         $phone10 = $this->formatPhoneNumber($data['manager']['phone']);
@@ -256,8 +251,11 @@ class AuthController extends Controller
         $this->deliverVerificationCode($phone10);
     });
 
-    return response()->json(['message' => 'Организация зарегистрирована, код выслан менеджеру.'], 201);
+    return response()->json([
+        'message' => 'Организация зарегистрирована, код выслан менеджеру.'
+    ], 201);
 }
+
 
     /**
      * Generate a random 4-digit code, store it in PhoneVerification table,

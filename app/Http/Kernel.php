@@ -59,6 +59,7 @@ class Kernel extends HttpKernel
 
         'role' => \App\Http\Middleware\Roles::class,
         // 'client' => \App\Http\Middleware\Roles::class, // Ensure this alias points to the correct class
+    'withinPlan' => \App\Http\Middleware\EnsurePermissionsInPlan::class,
 
         'auth' => \App\Http\Middleware\Authenticate::class,
         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,

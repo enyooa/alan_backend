@@ -59,5 +59,10 @@ class FinancialOrder extends Model
     {
         return $this->belongsTo(Provider::class, 'provider_id');
     }
+// app/Models/FinancialOrder.php
+public function scopeForOrg($query, $orgId)
+{
+    return $query->where('organization_id', $orgId);
+}
 
 }

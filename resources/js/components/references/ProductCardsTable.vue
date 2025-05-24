@@ -68,7 +68,7 @@
         </h3>
 
         <div class="modal-body">
-          <label class="field-label">Наименование</label>
+          <label class="field-label">Наименование продукта</label>
           <input v-model.trim="form.name_of_products"
                  type="text"
                  class="modal-input" />
@@ -145,7 +145,7 @@ export default {
     /* ─── загрузка списка ─────────────────────────────── */
     async load () {
       try {
-        const { data } = await axios.get('/api/reference/productCard')
+        const { data } = await axios.get('/api/references/productCard')
         this.raw = Array.isArray(data) ? data : []
         this.applyFilter()
       } catch (e) {
@@ -153,7 +153,7 @@ export default {
         alert('Не удалось загрузить карточки товаров')
       }
     },
-
+    
     /* ─── сохранить (create / edit) ───────────────────── */
     async save () {
       if (!this.form.name_of_products) {
@@ -170,7 +170,7 @@ export default {
       this.saving = true; this.msg = ''
       try {
         if (this.modalMode === 'create') {
-          await axios.post('/api/reference/productCard', fd,
+          await axios.post('/api/product_card_create', fd,
             { headers: { 'Content-Type': 'multipart/form-data' } })
         } else {
           await axios.patch(`/api/reference/productCard/${this.form.id}`, fd,
